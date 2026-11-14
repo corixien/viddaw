@@ -13,7 +13,7 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "io.github.corixien.viddaw"
-    compileSdk = 36
+    compileSdk = 37
     ndkVersion = "29.0.14206865"
 
     defaultConfig {

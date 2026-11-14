@@ -8,7 +8,7 @@ plugins {
 kotlin {
     androidLibrary {
         namespace = "io.github.corixien.viddaw.shared"
-        compileSdk = 36
+        compileSdk = 37
         minSdk = 28
     }
     // The JVM target keeps common code platform-free and runs the model tests without a device.

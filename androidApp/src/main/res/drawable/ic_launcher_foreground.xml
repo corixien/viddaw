@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A "V" built from two clips: one neutral, one in a track colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M39,38 L54,72"
+        android:strokeColor="#F2F2F7"
+        android:strokeLineCap="round"
+        android:strokeWidth="11" />
+    <path
+        android:pathData="M69,38 L59.5,59.5"
+        android:strokeColor="#E5704B"
+        android:strokeLineCap="round"
+        android:strokeWidth="11" />
+</vector>
