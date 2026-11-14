@@ -269,7 +269,7 @@ private fun BoxScope.Toasts(studio: StudioState) {
     if (text != null) shown[0] = text
     AnimatedVisibility(
         text != null,
-        Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 60.dp, start = 16.dp, end = 16.dp),
+        Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 58.dp, start = 16.dp, end = 16.dp),
         enter = slideInVertically(spring(dampingRatio = 0.8f)) { -it * 2 },
         exit = slideOutVertically { -it * 2 },
     ) {

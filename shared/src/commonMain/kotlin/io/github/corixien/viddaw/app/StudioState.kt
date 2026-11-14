@@ -261,6 +261,7 @@ class StudioState(
 
     /** Called once per display frame while the studio is visible. */
     fun tick() {
+        if (busy != null) return  // an offline render is driving the engine
         positionFrames = engine.position()
         playing = engine.isPlaying()
         val n = engine.meters(rawLevels)

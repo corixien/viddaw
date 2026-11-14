@@ -42,7 +42,11 @@ interface Platform {
     /** Renders [segments] with [wavPath] as soundtrack into an MP4. Returns where it went, null on failure. */
     suspend fun exportVideo(segments: List<VideoSegment>, wavPath: String, totalSec: Double, name: String, onProgress: (Float) -> Unit): String?
 
-    /** External MIDI keyboards: called with (pitch, velocity, noteOn) from any thread. */
+    /** Nearby Bluetooth MIDI devices as (address in uri, name). Empty if none or not permitted. */
+    suspend fun scanBluetoothMidi(): List<PickedMedia>
+    suspend fun connectBluetoothMidi(address: String): Boolean
+
+    /** External MIDI keyboards: called with (pitch, velocity, noteOn) on the main thread. */
     var onMidiNote: ((Int, Int, Boolean) -> Unit)?
 
     /** Shows the frame of [segments] at [positionSec], following playback when [playing]. */

@@ -1,6 +1,16 @@
 package io.github.corixien.viddaw
 
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.ParcelUuid
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import android.media.midi.MidiDevice
 import android.media.midi.MidiDeviceInfo
 import android.media.midi.MidiManager
@@ -12,7 +22,7 @@ import android.os.Looper
  * Listens to every connected MIDI device (USB, and Bluetooth once opened) and reports
  * note on/off on the main thread.
  */
-class MidiInput(context: Context, private val onNote: (pitch: Int, velocity: Int, on: Boolean) -> Unit) {
+class MidiInput(private val context: Context, private val onNote: (pitch: Int, velocity: Int, on: Boolean) -> Unit) {
     private val manager = context.getSystemService(Context.MIDI_SERVICE) as? MidiManager
     private val main = Handler(Looper.getMainLooper())
     private val devices = HashMap<Int, MidiDevice>()
@@ -74,5 +84,42 @@ class MidiInput(context: Context, private val onNote: (pitch: Int, velocity: Int
     fun adopt(device: MidiDevice) {
         devices.put(device.info.id, device)?.close()
         for (port in 0 until device.info.outputPortCount) device.openOutputPort(port)?.connect(receiver)
+    }
+
+    /** Scans a few seconds for BLE devices advertising the MIDI service. Returns (address, name). */
+    @SuppressLint("MissingPermission")
+    suspend fun scanBluetooth(): List<Pair<String, String>> {
+        val scanner = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.bluetoothLeScanner ?: return emptyList()
+        val found = LinkedHashMap<String, String>()
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                found[result.device.address] = result.device.name ?: result.device.address
+            }
+        }
+        val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString("03B80E5A-EDE8-4B33-A751-6CE34EC4C700")).build()
+        return try {
+            scanner.startScan(listOf(filter), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
+            delay(4000)
+            scanner.stopScan(callback)
+            found.map { it.key to it.value }
+        } catch (e: SecurityException) {
+            emptyList()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    suspend fun connectBluetooth(address: String): Boolean {
+        val m = manager ?: return false
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter ?: return false
+        val result = CompletableDeferred<Boolean>()
+        return try {
+            m.openBluetoothDevice(adapter.getRemoteDevice(address), { device ->
+                if (device != null) adopt(device)
+                result.complete(device != null)
+            }, main)
+            withTimeoutOrNull(10_000) { result.await() } ?: false
+        } catch (e: Exception) {
+            false
+        }
     }
 }

@@ -53,6 +53,26 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
 
     override var onMidiNote: ((Int, Int, Boolean) -> Unit)? = null
 
+    private var pendingPermissions: CompletableDeferred<Boolean>? = null
+    private val permissionsLauncher = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        pendingPermissions?.complete(r.values.all { it })
+    }
+
+    private suspend fun bluetoothAllowed(): Boolean {
+        if (Build.VERSION.SDK_INT < 31) return false  // older versions need location access to scan
+        val needed = arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        if (needed.all { activity.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) return true
+        val result = CompletableDeferred<Boolean>()
+        pendingPermissions = result
+        permissionsLauncher.launch(needed)
+        return result.await()
+    }
+
+    override suspend fun scanBluetoothMidi(): List<PickedMedia> =
+        if (bluetoothAllowed()) midi.scanBluetooth().map { PickedMedia(it.first, it.second) } else emptyList()
+
+    override suspend fun connectBluetoothMidi(address: String): Boolean = bluetoothAllowed() && midi.connectBluetooth(address)
+
     override fun readText(path: String): String? = File(path).takeIf { it.isFile }?.readText()
 
     override fun writeText(path: String, text: String) {
@@ -301,7 +321,9 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
 
     override suspend fun exportVideo(segments: List<VideoSegment>, wavPath: String, totalSec: Double, name: String, onProgress: (Float) -> Unit): String? {
         val out = File(activity.cacheDir, "export.mp4")
-        if (!video.export(segments, wavPath, totalSec, out, onProgress)) return null
+        val ok = runCatching { video.export(segments, wavPath, totalSec, out, onProgress) }
+            .onFailure { android.util.Log.e("Viddaw", "video export failed", it) }.getOrDefault(false)
+        if (!ok) return null
         return withContext(Dispatchers.IO) { publish(out, name, "mp4", "video/mp4", video = true).also { out.delete() } }
     }
 

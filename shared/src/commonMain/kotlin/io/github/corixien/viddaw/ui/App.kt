@@ -30,6 +30,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import io.github.corixien.viddaw.app.PickedMedia
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,7 +156,7 @@ private fun ProjectCard(p: Project, onOpen: () -> Unit, onMore: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Txt(p.name, style = type.heading)
-            Txt("${p.tracks.size} ${T.tracksCount.t}, ${p.bpm.toInt()} BPM", style = type.small, color = pal.dim)
+            Txt("${p.tracks.size} ${if (p.tracks.size == 1) T.trackCountOne.t else T.tracksCount.t}, ${p.bpm.toInt()} BPM", style = type.small, color = pal.dim)
         }
         IconBtn(Lucide.Ellipsis, onMore, tint = pal.dim)
     }
@@ -187,7 +190,40 @@ private fun androidx.compose.foundation.layout.BoxScope.SettingsSheet(app: AppSt
         Spacer(Modifier.height(16.dp))
         Hairline()
         Spacer(Modifier.height(12.dp))
+        BluetoothMidi(app)
+        Spacer(Modifier.height(12.dp))
+        Hairline()
+        Spacer(Modifier.height(12.dp))
         Txt("Viddaw 0.1.0", style = type.label)
         Txt(T.aboutText.t, style = type.small, color = pal.dim, maxLines = 2)
+    }
+}
+
+@Composable
+private fun BluetoothMidi(app: AppState) {
+    val scope = rememberCoroutineScope()
+    var scanning by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<PickedMedia>?>(null) }
+    var status by remember { mutableStateOf<Pair<String, Str>?>(null) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Txt(T.bluetoothMidi.t, style = type.label)
+            Txt(T.midiHint.t, style = type.small, color = pal.dim, maxLines = 2)
+        }
+        Btn(if (scanning) T.scanning.t else T.scan.t, {
+            scanning = true
+            scope.launch {
+                found = app.platform.scanBluetoothMidi()
+                scanning = false
+            }
+        }, enabled = !scanning)
+    }
+    found?.let { list ->
+        if (list.isEmpty()) Txt(T.noDevices.t, Modifier.padding(top = 8.dp), color = pal.dim)
+        for (d in list) {
+            ListRow(d.name, {
+                scope.launch { status = d.uri to if (app.platform.connectBluetoothMidi(d.uri)) T.connected else T.connectFailed }
+            }, subtitle = status?.takeIf { it.first == d.uri }?.second?.t, icon = Lucide.Keyboard)
+        }
     }
 }
