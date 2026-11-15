@@ -129,7 +129,8 @@ private fun VideoBox(app: AppState, studio: StudioState, modifier: Modifier) {
     val segments = studio.videoSegments()
     val overlays = studio.overlaySegments()
     fun now() = studio.positionFrames.toDouble() / SAMPLE_RATE
-    fun active(t: Double) = overlays.filter { t >= it.startSec && t < it.startSec + it.durationSec }
+    // A clip placed at the playhead may start a fraction of a millisecond after it once rounded to ticks.
+    fun active(t: Double) = overlays.filter { t + 0.002 >= it.startSec && t < it.startSec + it.durationSec }
     val first = segments.firstOrNull()?.uri
     LaunchedEffect(first) { if (first != null) app.platform.videoAspect(first).takeIf { it > 0f }?.let { studio.videoAspect = it } }
 

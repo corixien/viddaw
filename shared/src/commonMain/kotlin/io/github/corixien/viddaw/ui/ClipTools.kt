@@ -174,7 +174,7 @@ fun ClipToolbar(studio: StudioState, vScroll: ScrollState, widthPx: Float, heade
                     if (kept[0].isNotEmpty()) Hairline(Modifier.width(236.dp).padding(vertical = 4.dp))
                     for (pair in kept[1].chunked(2)) Row {
                         for (a in pair) Row(
-                            Modifier.width(118.dp).height(38.dp).pressable(onClick = a.run).padding(horizontal = 8.dp),
+                            Modifier.width(118.dp).height(38.dp).pressable { more = false; a.run() }.padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -340,11 +340,11 @@ private fun TransitionTool(studio: StudioState, fx: VideoFx) {
     fun ms(v: Float) = (100 + v * 2900).roundToInt() / 50 * 50
     Label(T.transIn.t)
     Spacer(Modifier.height(6.dp))
-    Choices(names, fx.transIn, 4) { i -> studio.editFx { it.copy(transIn = i) } }
+    Choices(names, fx.transIn, 3) { i -> studio.editFx { it.copy(transIn = i) } }
     SliderRow(T.duration.t, "${fmt(fx.transInMs / 1000f, 2)} s", (fx.transInMs - 100) / 2900f, { v -> studio.editFx { it.copy(transInMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
     Label(T.transOut.t)
     Spacer(Modifier.height(6.dp))
-    Choices(names, fx.transOut, 4) { i -> studio.editFx { it.copy(transOut = i) } }
+    Choices(names, fx.transOut, 3) { i -> studio.editFx { it.copy(transOut = i) } }
     SliderRow(T.duration.t, "${fmt(fx.transOutMs / 1000f, 2)} s", (fx.transOutMs - 100) / 2900f, { v -> studio.editFx { it.copy(transOutMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
 }
 

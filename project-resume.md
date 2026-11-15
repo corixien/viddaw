@@ -37,19 +37,18 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
 - Projects live in `<filesDir>/projects/<id>/project.json` with `audio/*.wav` beside it.
 
 ## Current state (2026-11-15)
-Version 0.2.0 in the tree; the published release is still 0.1.0.
+Version 0.2.0 in the tree and installed on the phone as a debug build; the published release is still 0.1.0.
 
 0.2.0 is a rework of the studio asked for by the user after trying 0.1.0 ("behave like BandLab Mobile").
-It builds, and the engine and model tests pass, but **none of it has run on a device yet**: the phone was
-not connected. First job of the next session: install the debug build and walk through the list below.
 
-What 0.2.0 changed (all untested on device):
+What 0.2.0 changed:
 - Playhead fixed in the middle of the timeline; the content scrolls under it, so scrolling is seeking
   (`ui/Timeline.kt`). `StudioState.scrollTick` is gone. Pinch zoom therefore always zooms on the playhead.
 - Track headers reach to the playhead at the project start and shrink to 118 dp as the content scrolls in.
 - Mixer is no longer a sheet. Swiping the headers right moves them to the right edge (wide headers travel
   first, then narrow) and shows one mixer strip per track row on the left; swipe left, the corner button or
-  back closes it. State: `StudioState.mixerOpen`, progress animated in `Timeline`.
+  back closes it. State: `StudioState.mixerOpen`, progress animated in `Timeline`. The header column moves
+  under the finger, so its swipe is measured in timeline coordinates (`left()` in `HeaderColumn`).
 - Long-press a header and drag to reorder tracks. "+ Track" is the last row of the header column.
 - The bar above the transport is gone. A selected clip gets a floating toolbar (`ui/ClipTools.kt`): split,
   copy, duplicate, delete as icons, the rest behind the last button. Long-pressing a clip adds it to the
@@ -71,16 +70,21 @@ What 0.2.0 changed (all untested on device):
 - Text, rectangle and ellipse overlays are clips on a video track (`Clip.overlay`), placed by dragging and
   pinching in the preview, exported as timed bitmap overlays.
 
-Check on the device, in this order:
-1. Timeline gestures: scroll and fling, pinch, tap and long-press on clips, drag-move of a multi-selection,
-   trim handles, loop handles. Header gestures: tap, swipe to the mixer and back, long-press reorder.
-2. Toolbar placement near screen edges and above the first track; sheets dragging shut.
-3. Video import (two grouped tracks), frames in the clip, split and move staying in sync, ungroup.
-4. Preview: colour, filters, blur (needs Android 12), placement by touch, transitions, overlays.
-5. MP4 export with all of the above. Uncertain points: effect timestamps (handled by `Clock`, which counts
-   from the first frame an effect sees), overlay timing at composition level, colour match between the
-   preview's colour filter and the export (`WORKING_COLOR_SPACE_ORIGINAL`), TextureView transforms.
-6. Fades, clip gain, normalise, time-stretch and transpose by ear.
+Verified on the Galaxy S23+ (Android 17) with adb-driven touches:
+- Centred playhead, scrolling, headers shrinking from half width; clip selection, long-press multi-selection,
+  toolbar and its overflow; mixer swipe open and closed; header reorder; sheet dragged shut.
+- Video import into two grouped tracks of one colour with frames; split cuts both; drag moves both.
+- Colour grade and zoom transition in the preview; text overlay added and dragged in the preview.
+- MP4 export of that project: frames checked on the host show the grade, the transition growing in and
+  the text for its three seconds.
+- Time-stretch on a recorded take: the rendered file has the expected length.
+
+Not verified on the device:
+- By ear: fades, clip gain, normalise, the sound of a stretched or transposed clip.
+- By real fingers: pinch zoom, two-finger resize and rotate in the preview, trim and loop handles, fling feel,
+  whether the project/studio transition now looks clean (the user reported the old one as glitchy).
+- Blur, filters, placement and slide transitions in the export; rectangle and ellipse overlays; paste.
+- Whether preview and export colours match exactly.
 
 Still true from 0.1.0 (verified on a Galaxy S23+, Android 17): recording, audio import, drum rack, sampler,
 MIDI recording, piano roll, effects, WAV/FLAC/M4A export, plain MP4 export.
@@ -90,11 +94,11 @@ Never verified: USB and Bluetooth MIDI hardware, acoustic round-trip latency, ta
 Release:
 - Signed with `~/.config/viddaw/viddaw-release.jks`, passwords in `~/.config/viddaw/keystore.properties`.
   Both are outside the repo and must be backed up; losing them means updates cannot install over old versions.
-- The phone has the 0.1.0 debug build. The release APK has a different signature and will not install over it.
-- Do not publish 0.2.0 before the device pass above.
+- The phone has the 0.2.0 debug build. The release APK has a different signature and will not install over it.
+- 0.2.0 is not published; the user has not tried it yet.
 
 ## Known gaps and next steps
-1. Device pass for 0.2.0 (see above), then fix what it shows and retake the README screenshots.
+1. User feedback on 0.2.0, the unverified points above, new README screenshots, then a 0.2.0 release.
 2. Video: clips never show at the same time, so there is no cross-dissolve and no picture-in-picture;
    transitions run against black. Needs a second decoder in the preview and a multi-sequence export.
 3. Video clips have no speed control; time-stretch is offered for audio and MIDI only.
@@ -113,4 +117,6 @@ Release:
 - After `adb install`, wait two seconds before `am start`; otherwise Android kills the fresh process.
 - There is no emulator on this machine; UI work can only be checked on the phone.
 - The phone reports density 2.75; screenshots scaled to 36 % map to device pixels by dividing by 0.36.
+- `adb shell input draganddrop x1 y1 x2 y2 ms` does a long-press drag; plain `input swipe` cannot.
+- The floating toolbar moves with the selection, so take a screenshot before every tap on it.
 - The host ffmpeg cannot decode the phone's H.264; use GStreamer `vah264dec` to check exported frames.

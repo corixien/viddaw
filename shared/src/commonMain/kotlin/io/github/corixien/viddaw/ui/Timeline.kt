@@ -165,6 +165,7 @@ fun Timeline(studio: StudioState, modifier: Modifier = Modifier) {
 
         HeaderColumn(
             studio, vScroll,
+            left = { headerGeometry().first },
             onSwipe = { dx -> scope.launch { mixer.snapTo((mixer.value + dx / (wPx - basePx)).coerceIn(0f, 1f)) } },
             onSwipeEnd = { velocity ->
                 val open = if (abs(velocity) > 500f) velocity > 0 else mixer.value > 0.5f
@@ -184,7 +185,7 @@ fun Timeline(studio: StudioState, modifier: Modifier = Modifier) {
 
 @Composable
 private fun HeaderColumn(
-    studio: StudioState, vScroll: ScrollState, onSwipe: (Float) -> Unit, onSwipeEnd: (Float) -> Unit, modifier: Modifier,
+    studio: StudioState, vScroll: ScrollState, left: () -> Float, onSwipe: (Float) -> Unit, onSwipeEnd: (Float) -> Unit, modifier: Modifier,
 ) {
     val density = LocalDensity.current.density
     val haptic = LocalHapticFeedback.current
@@ -215,6 +216,8 @@ private fun HeaderColumn(
                         val velocity = VelocityTracker()
                         var total = Offset.Zero
                         var mode = 0  // 0 undecided, 1 mixer swipe, 2 vertical scroll, 3 reorder
+                        // The column moves under the finger during a swipe, so measure it against the timeline.
+                        var lastX = down.position.x + left()
                         try {
                             while (true) {
                                 val event = if (mode == 0 && track != null) {
@@ -237,9 +240,11 @@ private fun HeaderColumn(
                                     }
                                     break
                                 }
-                                val d = change.positionChange()
+                                val x = change.position.x + left()
+                                val d = Offset(x - lastX, change.positionChange().y)
+                                lastX = x
                                 total += d
-                                velocity.addPosition(change.uptimeMillis, change.position)
+                                velocity.addPosition(change.uptimeMillis, Offset(x, change.position.y))
                                 if (mode == 0 && total.getDistance() > viewConfiguration.touchSlop) mode = if (abs(total.x) > abs(total.y)) 1 else 2
                                 when (mode) {
                                     1 -> onSwipe(d.x)
