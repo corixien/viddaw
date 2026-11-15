@@ -21,8 +21,13 @@ data class Note(val start: Long, val length: Long, val pitch: Int, val velocity:
 /**
  * One clip kind per track type:
  * - audio: [file] is a WAV inside the project, [offset]/[frames] select the part that plays
- * - video: [video] is the source URI, [file] its extracted audio (null if silent), same trimming fields
+ * - video: [video] is the source URI, trimmed by the same fields; its sound is a separate audio clip
+ *   in the same [group] (older projects kept it in [file])
+ * - overlay: [overlay] is a text or shape drawn over the picture for [length] ticks, on a video track
  * - MIDI: [length] in ticks and [notes] relative to the clip start; notes outside 0..length are kept but silent
+ *
+ * Clips that share a non-zero [group] are edited together. [src], [speed] and [pitch] describe how
+ * [file] was rendered from the original recording, so a new stretch starts from the original again.
  */
 @Serializable
 data class Clip(
@@ -37,8 +42,19 @@ data class Clip(
     val video: String? = null,
     val length: Long = 0,
     val notes: List<Note> = emptyList(),
+    val fadeIn: Long = 0,
+    val fadeOut: Long = 0,
+    val group: Long = 0,
+    val src: String? = null,
+    val speed: Float = 1f,
+    val pitch: Float = 0f,
+    val fx: VideoFx = VideoFx(),
+    val overlay: Overlay? = null,
 ) {
-    val isMidi get() = file == null && video == null
+    /** Length counted in ticks rather than frames: MIDI and overlay clips. */
+    val tickBased get() = file == null && video == null
+    val isMidi get() = tickBased && overlay == null
+    val isAudio get() = file != null && video == null
 }
 
 @Serializable
@@ -100,8 +116,10 @@ fun ticksToFrames(ticks: Long, bpm: Double): Long = (ticks * 60.0 * SAMPLE_RATE 
 fun framesToTicks(frames: Long, bpm: Double): Long = (frames * bpm * PPQ / (60.0 * SAMPLE_RATE)).roundToLong()
 fun dbToLinear(db: Float): Float = if (db <= MIN_DB) 0f else 10.0.pow(db / 20.0).toFloat()
 
-fun Clip.lengthTicks(bpm: Double): Long = if (isMidi) length else framesToTicks(frames, bpm)
+fun Clip.lengthTicks(bpm: Double): Long = if (tickBased) length else framesToTicks(frames, bpm)
 fun Clip.endTick(bpm: Double): Long = start + lengthTicks(bpm)
+
+fun Project.clips(ids: Set<Long>): List<Clip> = tracks.flatMap { t -> t.clips.filter { it.id in ids } }
 
 val Project.ticksPerBar get() = PPQ * beatsPerBar
 fun Project.endTick(): Long = tracks.maxOfOrNull { t -> t.clips.maxOfOrNull { it.endTick(bpm) } ?: 0 } ?: 0

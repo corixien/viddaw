@@ -22,7 +22,9 @@ import androidx.compose.ui.Modifier
 import io.github.corixien.viddaw.app.ExportFormat
 import io.github.corixien.viddaw.app.PickedMedia
 import io.github.corixien.viddaw.app.Platform
+import io.github.corixien.viddaw.app.OverlaySegment
 import io.github.corixien.viddaw.app.VideoSegment
+import androidx.compose.ui.graphics.ImageBitmap
 import io.github.corixien.viddaw.engine.Native
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -319,9 +321,13 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         return "$folder/$safe.$extension"
     }
 
-    override suspend fun exportVideo(segments: List<VideoSegment>, wavPath: String, totalSec: Double, name: String, onProgress: (Float) -> Unit): String? {
+    override suspend fun videoAspect(uri: String): Float = withContext(Dispatchers.IO) { video.outputSize(uri).let { it.first.toFloat() / it.second } }
+
+    override suspend fun videoFrame(uri: String, timeMs: Long, height: Int): ImageBitmap? = video.frame(uri, timeMs, height)
+
+    override suspend fun exportVideo(segments: List<VideoSegment>, overlays: List<OverlaySegment>, wavPath: String, totalSec: Double, name: String, onProgress: (Float) -> Unit): String? {
         val out = File(activity.cacheDir, "export.mp4")
-        val ok = runCatching { video.export(segments, wavPath, totalSec, out, onProgress) }
+        val ok = runCatching { video.export(segments, overlays, wavPath, totalSec, out, onProgress) }
             .onFailure { android.util.Log.e("Viddaw", "video export failed", it) }.getOrDefault(false)
         if (!ok) return null
         return withContext(Dispatchers.IO) { publish(out, name, "mp4", "video/mp4", video = true).also { out.delete() } }

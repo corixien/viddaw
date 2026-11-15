@@ -194,6 +194,10 @@ JNI(jlong, fileFrames)(JNIEnv* env, jobject, jstring path) {
     return f ? f->frames : 0;
 }
 
+JNI(jlong, stretch)(JNIEnv* env, jobject, jstring src, jstring dst, jdouble speed, jdouble semitones) {
+    return stretchFile(str(env, src), str(env, dst), speed, semitones);
+}
+
 // Blocks until done. The output stream is paused so only this thread drives the engine.
 JNI(jboolean, renderToFile)(JNIEnv* env, jobject, jstring path, jlong start, jlong end, jint bits) {
     engine()->pause();

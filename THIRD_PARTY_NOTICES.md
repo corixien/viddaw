@@ -7,7 +7,7 @@ Viddaw is licensed under the Apache License 2.0. It includes or links the follow
 | [Kotlin](https://kotlinlang.org) and kotlinx.coroutines, kotlinx.serialization | Language, concurrency, project files | Apache-2.0 |
 | [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) / Jetpack Compose | UI toolkit | Apache-2.0 |
 | [AndroidX Activity](https://developer.android.com/jetpack/androidx/releases/activity) | Activity integration | Apache-2.0 |
-| [AndroidX Media3](https://github.com/androidx/media) (ExoPlayer, Transformer, Effect) | Video preview and export | Apache-2.0 |
+| [AndroidX Media3](https://github.com/androidx/media) (ExoPlayer, Transformer, Effect) | Video preview, effects and export | Apache-2.0 |
 | [Oboe](https://github.com/google/oboe) | Low-latency audio on Android | Apache-2.0 |
 | [Lucide icons](https://lucide.dev) via [composeicons](https://github.com/composablehorizons/composeicons) | Icons | ISC (Lucide), MIT (bindings) |
 | [Inter](https://github.com/rsms/inter) | Typeface | SIL Open Font License 1.1, see `licenses/Inter-OFL.txt` |
@@ -21,7 +21,9 @@ encoding of AAC, FLAC and H.264 exports go through the codecs that ship with the
 
 The effects are original implementations of published designs: biquad filters after Robert
 Bristow-Johnson's Audio EQ Cookbook, a Schroeder/Moorer comb and allpass reverb, and a
-trapezoidal state variable filter after Vadim Zavalishin. No third-party DSP source is included.
+trapezoidal state variable filter after Vadim Zavalishin. Time-stretching is an original WSOLA
+(waveform similarity overlap-add, Verhelst and Roelands) implementation with windowed-sinc
+resampling. No third-party DSP source is included.
 
 ## Sounds
 

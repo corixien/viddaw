@@ -137,6 +137,102 @@ std::vector<float> computePeaks(const std::string& path, int framesPerPeak) {
     return peaks;
 }
 
+// ---- time-stretch and pitch-shift ----
+
+int64_t stretchFile(const std::string& src, const std::string& dst, double speed, double semitones) {
+    auto in = AudioFile::open(src);
+    if (!in || in->frames < 1 || speed < 0.05 || speed > 20) return 0;
+    const int ch = in->channels;
+    const int64_t frames = in->frames;
+    const double ratio = std::pow(2.0, semitones / 12.0);  // resampling step that produces the pitch
+    const double alpha = ratio / speed;                    // length change WSOLA has to deliver first
+
+    // 1. WSOLA: overlap-add Hann frames, each taken where it best continues the previous one.
+    std::vector<float> mid;
+    int64_t midFrames = frames;
+    const int N = 2048, Hs = N / 2, S = 480;
+    if (std::fabs(alpha - 1.0) < 1e-4 || frames < N * 2) {
+        mid.assign(in->data, in->data + frames * ch);
+    } else {
+        std::vector<float> mono((size_t)frames);
+        for (int64_t i = 0; i < frames; i++) {
+            float v = 0;
+            for (int c = 0; c < ch; c++) v += in->data[i * ch + c];
+            mono[(size_t)i] = v;
+        }
+        std::vector<float> window(N);
+        for (int i = 0; i < N; i++) window[i] = 0.5f - 0.5f * std::cos(6.2831853f * (float)i / (float)N);
+        midFrames = (int64_t)((double)frames * alpha);
+        mid.assign((size_t)((midFrames + N) * ch), 0.f);
+        int64_t prev = 0;
+        for (int64_t o = 0; o < midFrames; o += Hs) {
+            const int64_t ideal = (int64_t)((double)o / alpha);
+            int64_t best = ideal;
+            const int64_t target = prev + Hs;
+            if (o > 0 && target + Hs < frames) {
+                float bestScore = -1e30f;
+                for (int d = -S; d <= S; d += 2) {
+                    const int64_t at = ideal + d;
+                    if (at < 0 || at + Hs >= frames) continue;
+                    float score = 0;
+                    for (int k = 0; k < Hs; k += 4) score += mono[(size_t)(at + k)] * mono[(size_t)(target + k)];
+                    if (score > bestScore) bestScore = score, best = at;
+                }
+            }
+            best = std::clamp<int64_t>(best, 0, frames - 1);
+            for (int k = 0; k < N; k++) {
+                const int64_t s = best + k;
+                if (s >= frames) break;
+                // The first frame has nothing to overlap with, so its rising half stays at full level.
+                const float w = (o == 0 && k < Hs) ? 1.f : window[k];
+                for (int c = 0; c < ch; c++) mid[(size_t)((o + k) * ch + c)] += in->data[s * ch + c] * w;
+            }
+            prev = best;
+        }
+    }
+
+    // 2. Resample by the pitch ratio with a windowed sinc, low-passed when shifting up.
+    WavWriter out;
+    if (!out.open(dst, ch, 32)) return 0;
+    if (std::fabs(ratio - 1.0) < 1e-6) {
+        out.write(mid.data(), midFrames);
+    } else {
+        const int half = 16, phases = 256;
+        const double cutoff = std::min(1.0, 1.0 / ratio);
+        std::vector<float> table((size_t)((phases + 1) * half * 2));
+        for (int p = 0; p <= phases; p++) {
+            for (int t = 0; t < half * 2; t++) {
+                const double x = (double)(t - half + 1) - (double)p / phases;
+                const double sinc = std::fabs(x) < 1e-9 ? 1.0 : std::sin(3.14159265358979 * x * cutoff) / (3.14159265358979 * x * cutoff);
+                const double win = 0.5 + 0.5 * std::cos(3.14159265358979 * x / half);
+                table[(size_t)(p * half * 2 + t)] = (float)(sinc * cutoff * (std::fabs(x) < half ? win : 0.0));
+            }
+        }
+        const int64_t outFrames = (int64_t)((double)midFrames / ratio);
+        std::vector<float> block((size_t)(4096 * ch));
+        for (int64_t at = 0; at < outFrames; at += 4096) {
+            const int n = (int)std::min<int64_t>(4096, outFrames - at);
+            for (int i = 0; i < n; i++) {
+                const double pos = (double)(at + i) * ratio;
+                const int64_t base = (int64_t)pos;
+                const float* taps = &table[(size_t)((int)((pos - (double)base) * phases) * half * 2)];
+                for (int c = 0; c < ch; c++) {
+                    float acc = 0;
+                    for (int t = 0; t < half * 2; t++) {
+                        const int64_t s = base + t - half + 1;
+                        if (s >= 0 && s < midFrames) acc += mid[(size_t)(s * ch + c)] * taps[t];
+                    }
+                    block[(size_t)(i * ch + c)] = acc;
+                }
+            }
+            out.write(block.data(), n);
+        }
+    }
+    const int64_t written = out.frames();
+    out.close();
+    return written;
+}
+
 // ---- Importer ----
 
 namespace {

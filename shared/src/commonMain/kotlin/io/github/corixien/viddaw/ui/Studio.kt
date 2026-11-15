@@ -7,7 +7,23 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.rememberTextMeasurer
+import io.github.corixien.viddaw.model.mapClip
+import io.github.corixien.viddaw.model.transitionAt
+import kotlin.math.abs
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -82,7 +98,6 @@ fun StudioScreen(app: AppState, studio: StudioState) {
                         VideoBox(app, studio, Modifier.width(fullW * 0.36f).fillMaxSize())
                     }
                 }
-                ClipBar(studio)
                 Hairline()
                 TransportBar(studio)
             }
@@ -91,7 +106,8 @@ fun StudioScreen(app: AppState, studio: StudioState) {
         AddTrackSheet(studio)
         TempoSheet(studio)
         ExportSheet(studio)
-        MixerSheet(studio)
+        ClipToolSheet(studio)
+        AddOverlaySheet(studio)
         TrackSettingsSheet(studio)
         EffectsSheet(studio)
         NoteEditorSheet(studio)
@@ -101,10 +117,92 @@ fun StudioScreen(app: AppState, studio: StudioState) {
     }
 }
 
+/**
+ * The picture. The platform plays the video with its colour grade; placement, transitions,
+ * texts and shapes are laid over it here, the same way the export composes them.
+ * Dragging moves the selected video clip or overlay, two fingers resize and turn it.
+ */
 @Composable
 private fun VideoBox(app: AppState, studio: StudioState, modifier: Modifier) {
-    Box(modifier.background(Color.Black)) {
-        app.platform.VideoPreview(studio.videoSegments(), { studio.positionFrames.toDouble() / SAMPLE_RATE }, studio.playing, Modifier.fillMaxSize())
+    val measurer = rememberTextMeasurer()
+    val style = type.heading
+    val segments = studio.videoSegments()
+    val overlays = studio.overlaySegments()
+    fun now() = studio.positionFrames.toDouble() / SAMPLE_RATE
+    fun active(t: Double) = overlays.filter { t >= it.startSec && t < it.startSec + it.durationSec }
+    val first = segments.firstOrNull()?.uri
+    LaunchedEffect(first) { if (first != null) app.platform.videoAspect(first).takeIf { it > 0f }?.let { studio.videoAspect = it } }
+
+    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.aspectRatio(studio.videoAspect).clipToBounds().pointerInput(studio) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    val id = studio.selectedClip
+                    val clip = id?.let(studio.project::clip)?.takeIf { it.overlay != null || it.video != null }
+                    var travelled = 0f
+                    var moving = false
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.none { it.pressed }) break
+                            val pan = event.calculatePan()
+                            val zoom = event.calculateZoom()
+                            val turn = event.calculateRotation()
+                            travelled += pan.getDistance()
+                            if (!moving && (travelled > viewConfiguration.touchSlop || event.changes.count { it.pressed } > 1)) {
+                                moving = true
+                                if (clip != null) studio.beginGesture()
+                            }
+                            if (moving && clip != null) {
+                                val dx = pan.x / size.width
+                                val dy = pan.y / size.height
+                                studio.edit { p ->
+                                    p.mapClip(clip.id) { c ->
+                                        val o = c.overlay
+                                        if (o != null) c.copy(overlay = o.copy(x = (o.x + dx).coerceIn(-1f, 1f), y = (o.y + dy).coerceIn(-1f, 1f), size = (o.size * zoom).coerceIn(0.02f, 0.8f), rotation = o.rotation + turn))
+                                        else c.copy(fx = c.fx.copy(x = (c.fx.x + dx).coerceIn(-1f, 1f), y = (c.fx.y + dy).coerceIn(-1f, 1f), scale = (c.fx.scale * zoom).coerceIn(0.2f, 3f), rotation = c.fx.rotation + turn))
+                                    }
+                                }
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    } finally {
+                        if (moving && clip != null) studio.endGesture()
+                    }
+                    if (!moving) {
+                        // A tap picks the topmost overlay under the finger.
+                        val frame = Size(size.width.toFloat(), size.height.toFloat())
+                        active(now()).lastOrNull { o ->
+                            val half = overlayExtent(o.overlay, frame)
+                            val c = Offset(frame.width / 2 + o.overlay.x * frame.width, frame.height / 2 + o.overlay.y * frame.height)
+                            abs(down.position.x - c.x) < half.x + 12.dp.toPx() && abs(down.position.y - c.y) < half.y + 12.dp.toPx()
+                        }?.let { studio.selectClip(it.clipId) }
+                    }
+                }
+            },
+        ) {
+            Box(
+                Modifier.fillMaxSize().graphicsLayer {
+                    val t = now()
+                    val seg = segments.firstOrNull { t >= it.startSec && t < it.startSec + it.durationSec } ?: return@graphicsLayer
+                    val tr = seg.fx.transitionAt(t - seg.startSec, seg.durationSec)
+                    val k = seg.fx.scale * tr.scale
+                    scaleX = if (seg.fx.flip) -k else k
+                    scaleY = k
+                    rotationZ = seg.fx.rotation
+                    translationX = (seg.fx.x + tr.dx) * size.width
+                    translationY = (seg.fx.y + tr.dy) * size.height
+                    alpha = (tr.fade * seg.fx.opacity).coerceIn(0f, 1f)
+                },
+            ) {
+                app.platform.VideoPreview(segments, ::now, studio.playing, Modifier.fillMaxSize())
+            }
+            Canvas(Modifier.fillMaxSize()) {
+                for (o in active(now())) drawOverlay(o.overlay, measurer, style, o.clipId in studio.selection)
+            }
+        }
+        IconBtn(Lucide.Type, { studio.panel = Panel.AddOverlay }, Modifier.align(Alignment.TopEnd).padding(4.dp), tint = Color.White, size = 36.dp)
     }
 }
 
@@ -115,56 +213,7 @@ private fun TopBar(app: AppState, studio: StudioState) {
         Txt(studio.project.name, Modifier.weight(1f).padding(horizontal = 4.dp), type.heading)
         IconBtn(Lucide.Undo2, studio::undo, enabled = studio.canUndo)
         IconBtn(Lucide.Redo2, studio::redo, enabled = studio.canRedo)
-        IconBtn(Lucide.SlidersVertical, { studio.panel = Panel.Mixer })
         IconBtn(Lucide.Share, { studio.panel = Panel.Export })
-    }
-}
-
-/** Actions for the selected clip, or quick actions for the selected track. Slides in above the transport. */
-@Composable
-private fun ClipBar(studio: StudioState) {
-    val clip = studio.selectedClip?.let(studio.project::clip)
-    val track = studio.selectedTrack?.let(studio.project::track)
-    AnimatedVisibility(clip != null || track != null, enter = expandVertically(spring(stiffness = Spring.StiffnessMedium)), exit = shrinkVertically(spring(stiffness = Spring.StiffnessMedium))) {
-        Column {
-            Hairline()
-            Row(
-                Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (clip != null) {
-                    BarAction(Lucide.Scissors, T.split.t, studio::splitSelected)
-                    BarAction(Lucide.Copy, T.duplicate.t, studio::duplicateSelected)
-                    if (clip.isMidi) BarAction(Lucide.Pencil, T.edit.t) { studio.panel = Panel.NoteEditor(clip.id) }
-                    Spacer(Modifier.weight(1f))
-                    IconBtn(Lucide.Trash2, studio::deleteSelected, tint = pal.record)
-                } else if (track != null) {
-                    when (track.type) {
-                        TrackType.Audio -> BarAction(Lucide.Import, T.importAudio.t) { studio.importAudio() }
-                        TrackType.Video -> BarAction(Lucide.Import, T.importVideo.t) { studio.importVideo() }
-                        else -> {
-                            BarAction(Lucide.Plus, T.newClip.t) { studio.panel = Panel.NoteEditor(studio.addMidiClip(track, studio.positionTick)) }
-                            BarAction(Lucide.Keyboard, if (track.type == TrackType.Drums) T.pads.t else T.keys.t) { studio.panel = Panel.Play(track.id) }
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    BarAction(Lucide.SlidersHorizontal, T.effects.t) { studio.panel = Panel.Effects(track.id) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        Modifier.height(36.dp).pressable(onClick = onClick).padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(icon, pal.text, 17.dp)
-        Txt(label, style = type.label)
     }
 }
 
@@ -197,9 +246,11 @@ private fun TransportBar(studio: StudioState) {
             Txt("${fmt(project.bpm.toFloat(), if (project.bpm % 1.0 == 0.0) 0 else 1)} BPM", style = type.small, color = pal.dim)
         }
         Spacer(Modifier.weight(1f))
-        IconBtn(Lucide.Repeat, { studio.edit { it.copy(loopEnabled = !it.loopEnabled) } }, active = project.loopEnabled)
-        IconBtn(Lucide.Timer, { studio.edit { it.copy(metronome = !it.metronome) } }, active = project.metronome)
-        IconBtn(Lucide.Magnet, { studio.snapOn = !studio.snapOn }, active = studio.snapOn)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconBtn(Lucide.Repeat, { studio.edit { it.copy(loopEnabled = !it.loopEnabled) } }, active = project.loopEnabled, size = 38.dp)
+            IconBtn(Lucide.Timer, { studio.edit { it.copy(metronome = !it.metronome) } }, active = project.metronome, size = 38.dp)
+            IconBtn(Lucide.Magnet, { studio.snapOn = !studio.snapOn }, active = studio.snapOn, size = 38.dp)
+        }
     }
 }
 
@@ -219,6 +270,7 @@ private fun BoxScope.AddTrackSheet(studio: StudioState) {
         Hairline(Modifier.padding(vertical = 6.dp))
         ListRow(T.importAudio.t, { studio.panel = Panel.None; studio.importAudio() }, icon = Lucide.Import)
         ListRow(T.importVideo.t, { studio.panel = Panel.None; studio.importVideo() }, icon = Lucide.Video)
+        ListRow(T.textOrShape.t, { studio.panel = Panel.AddOverlay }, subtitle = T.textOrShapeHint.t, icon = Lucide.Type)
     }
 }
 
@@ -247,7 +299,7 @@ private fun BoxScope.TempoSheet(studio: StudioState) {
 @Composable
 private fun BoxScope.ExportSheet(studio: StudioState) {
     Sheet(studio.panel == Panel.Export, { studio.panel = Panel.None }, T.export.t) {
-        val formats = ExportFormat.entries.filter { !it.video || studio.hasVideo }
+        val formats = ExportFormat.entries.filter { !it.video || studio.videoSegments().isNotEmpty() }
         for (f in formats) {
             ListRow(f.label, { studio.export(f) }, icon = if (f.video) Lucide.Film else Lucide.Music)
         }

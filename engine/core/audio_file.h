@@ -46,6 +46,10 @@ private:
 // Max absolute value per bucket of framesPerPeak frames, channels mixed.
 std::vector<float> computePeaks(const std::string& path, int framesPerPeak);
 
+// Writes src to dst played [speed] times faster and shifted by [semitones], each independent of
+// the other (WSOLA time-stretch followed by resampling). Returns the frames written, 0 on failure.
+int64_t stretchFile(const std::string& src, const std::string& dst, double speed, double semitones);
+
 // Streaming PCM16 -> float32 WAV at kSampleRate using a windowed-sinc resampler.
 class Importer {
 public:

@@ -15,7 +15,7 @@
 namespace vd {
 namespace {
 
-constexpr int kFade = 96;  // frames of fade at clip edges, removes clicks at cuts
+constexpr int kFade = 96;  // shortest fade at clip edges, removes clicks at cuts
 constexpr uint32_t kRingSize = 1u << 18;
 
 // Subnormal floats in filter tails cost orders of magnitude more CPU; flush them to zero.
@@ -114,7 +114,8 @@ void Engine::sync(const std::string& text) {
             continue;
         } else if (tag == 'C') {
             Clip c{};
-            in >> c.start >> c.offset >> c.frames >> c.gain;
+            in >> c.start >> c.offset >> c.frames >> c.gain >> c.fadeIn >> c.fadeOut;
+            c.fadeIn = std::max<int64_t>(c.fadeIn, kFade), c.fadeOut = std::max<int64_t>(c.fadeOut, kFade);
             c.file = file(restOfLine(in));
             if (c.file && c.frames > 0) track->clips.push_back(std::move(c));
         } else if (tag == 'N') {
@@ -289,7 +290,7 @@ void Engine::renderTrack(Track& t, int n, bool playing) {
                 const int64_t k = frame - c.start, src = c.offset + k;
                 if (src >= f.frames) break;
                 if (src < 0) continue;
-                const float fade = std::min(1.f, (float)std::min(k + 1, c.frames - k) / (float)kFade) * c.gain;
+                const float fade = std::min(1.f, std::min((float)(k + 1) / (float)c.fadeIn, (float)(c.frames - k) / (float)c.fadeOut)) * c.gain;
                 const int i = (int)(frame - pos);
                 if (f.channels == 1) {
                     const float v = f.data[src] * fade;

@@ -1,8 +1,8 @@
 package io.github.corixien.viddaw.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -58,13 +58,16 @@ fun App(app: AppState, systemDark: Boolean, font: FontFamily) {
     }
     ViddawTheme(dark, font, lang) {
         Box(Modifier.fillMaxSize().background(pal.window)) {
-            // Opening a project pushes the studio in from the right; closing reverses it.
+            // Opening a project slides the studio in over the list, which gives way a little; closing
+            // plays the same motion backwards. Both halves share one curve so they land together.
             AnimatedContent(
                 app.studio,
                 transitionSpec = {
-                    val dir = if (targetState != null) 1 else -1
-                    val spec = spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
-                    slideInHorizontally(spec) { it * dir } togetherWith slideOutHorizontally(spec) { -it * dir / 3 }
+                    val spec = tween<androidx.compose.ui.unit.IntOffset>(340, easing = FastOutSlowInEasing)
+                    val opening = targetState != null
+                    val motion = if (opening) slideInHorizontally(spec) { it } togetherWith slideOutHorizontally(spec) { -it / 4 }
+                    else slideInHorizontally(spec) { -it / 4 } togetherWith slideOutHorizontally(spec) { it }
+                    motion.apply { targetContentZIndex = if (opening) 1f else 0f }
                 },
                 contentKey = { it?.dir },
             ) { studio ->
@@ -195,7 +198,7 @@ private fun androidx.compose.foundation.layout.BoxScope.SettingsSheet(app: AppSt
         Spacer(Modifier.height(12.dp))
         Hairline()
         Spacer(Modifier.height(12.dp))
-        Txt("Viddaw 0.1.0", style = type.label)
+        Txt("Viddaw 0.2.0", style = type.label)
         Txt(T.aboutText.t, style = type.small, color = pal.dim, maxLines = 2)
     }
 }

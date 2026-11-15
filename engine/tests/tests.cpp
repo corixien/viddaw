@@ -142,7 +142,7 @@ static void testEngineMix() {
     writeSine(tmp("clip.wav"), 1, 1.0, 440, 0.5f);
     Engine e;
     // One audio track: clip of half a second starting at 0.5 s, read from 0.25 s into the file.
-    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 0.5 0 1\nC 24000 12000 24000 1 " + tmp("clip.wav") + "\n");
+    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 0.5 0 1\nC 24000 12000 24000 1 0 0 " + tmp("clip.wav") + "\n");
     auto f = AudioFile::open(bounce(e, "mix.wav", kSampleRate * 2));
     CHECK(f && f->frames == kSampleRate * 2 && f->channels == 2);
     if (!f) return;
@@ -151,17 +151,17 @@ static void testEngineMix() {
     CHECK(rms(*f, 49000, 96000) < 1e-6);
 
     // Hard left pan silences the right channel; an inaudible track is silent.
-    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 -1 1\nC 0 0 48000 1 " + tmp("clip.wav") + "\n");
+    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 -1 1\nC 0 0 48000 1 0 0 " + tmp("clip.wav") + "\n");
     f = AudioFile::open(bounce(e, "pan.wav", kSampleRate));
     double left = 0, right = 0;
     for (int64_t i = 4800; i < f->frames; i++) left += std::fabs(f->data[i * 2]), right += std::fabs(f->data[i * 2 + 1]);
     CHECK(left > 1000 && right < 1e-3);
-    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 0 0\nC 0 0 48000 1 " + tmp("clip.wav") + "\n");
+    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 0 0\nC 0 0 48000 1 0 0 " + tmp("clip.wav") + "\n");
     f = AudioFile::open(bounce(e, "mute.wav", kSampleRate));
     CHECK(rms(*f, 4800, f->frames) < 1e-6);
 
     // An effect in the chain changes the signal: a closed low-pass removes the 440 Hz tone.
-    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 0 1\nC 0 0 48000 1 " + tmp("clip.wav") + "\nE 9 filter 1 3 0 40 0\n");
+    e.sync("P 24000 4 0 0 0 1 0\nT 1 0 1 0 1\nC 0 0 48000 1 0 0 " + tmp("clip.wav") + "\nE 9 filter 1 3 0 40 0\n");
     f = AudioFile::open(bounce(e, "fx.wav", kSampleRate));
     CHECK(rms(*f, 4800, f->frames) < 0.02);
 }
@@ -235,6 +235,30 @@ static void testRecording() {
     CHECK(e.inputLevel() > 0.2f);
 }
 
+static void testStretch() {
+    writeSine(tmp("st_in.wav"), 2, 2.0, 440.f, 0.5f);
+    // Half speed: twice as long, same pitch.
+    int64_t n = stretchFile(tmp("st_in.wav"), tmp("st_slow.wav"), 0.5, 0);
+    CHECK(std::llabs(n - 192000) < 200);
+    // One octave up at the same length.
+    n = stretchFile(tmp("st_in.wav"), tmp("st_up.wav"), 1.0, 12);
+    CHECK(std::llabs(n - 96000) < 200);
+    for (const char* name : {"st_slow.wav", "st_up.wav"}) {
+        auto f = AudioFile::open(tmp(name));
+        CHECK(f && f->channels == 2);
+        // Count zero crossings in the middle second to read the frequency.
+        int crossings = 0;
+        float peak = 0;
+        for (int64_t i = 24000; i < 72000; i++) {
+            if (f->data[i * 2] <= 0 && f->data[(i + 1) * 2] > 0) crossings++;
+            peak = std::max(peak, std::fabs(f->data[i * 2]));
+        }
+        const int want = std::string(name) == "st_up.wav" ? 880 : 440;
+        CHECK(std::abs(crossings - want) <= 4);
+        CHECK(peak > 0.4f && peak < 0.62f);
+    }
+}
+
 int main() {
     testWavRoundTrip();
     testImporter();
@@ -243,6 +267,7 @@ int main() {
     testInstruments();
     testTransport();
     testRecording();
+    testStretch();
     printf(failures ? "%d FAILED\n" : "all engine tests passed\n", failures);
     return failures ? 1 : 0;
 }

@@ -69,90 +69,6 @@ inline fun <reified P : Panel> lastPanel(studio: StudioState): P? {
 }
 
 @Composable
-private fun VFader(value: Float, onChange: (Float) -> Unit, onStart: () -> Unit, onEnd: () -> Unit, modifier: Modifier) {
-    val p = pal
-    val change by rememberUpdatedState(onChange)
-    val latest by rememberUpdatedState(value)
-    Canvas(
-        modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                val down = awaitFirstDown()
-                val pad = 14.dp.toPx()
-                val startValue = latest
-                val startY = down.position.y
-                onStart()
-                // Relative drag: the cap does not jump to the finger.
-                var current = startValue
-                while (true) {
-                    val e = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                    if (!e.pressed) break
-                    current = (startValue - (e.position.y - startY) / (size.height - 2 * pad)).coerceIn(0f, 1f)
-                    change(current)
-                    e.consume()
-                }
-                onEnd()
-            }
-        },
-    ) {
-        val pad = 14.dp.toPx()
-        val x = size.width / 2
-        val h = size.height - 2 * pad
-        val y = pad + h * (1 - value.coerceIn(0f, 1f))
-        drawRoundRect(p.sunken, Offset(x - 2.dp.toPx(), pad), Size(4.dp.toPx(), h), CornerRadius(2.dp.toPx()))
-        val unity = pad + h * 0.25f
-        drawLine(p.dim, Offset(x - 9.dp.toPx(), unity), Offset(x + 9.dp.toPx(), unity), 1.dp.toPx())
-        val cap = Size(26.dp.toPx(), 16.dp.toPx())
-        drawRoundRect(p.line, Offset(x - cap.width / 2 - 1.dp.toPx(), y - cap.height / 2 - 1.dp.toPx()), Size(cap.width + 2.dp.toPx(), cap.height + 2.dp.toPx()), CornerRadius(5.dp.toPx()))
-        drawRoundRect(if (p.dark) Color(0xFFE5E5EA) else Color.White, Offset(x - cap.width / 2, y - cap.height / 2), cap, CornerRadius(4.dp.toPx()))
-        drawLine(Color(0xFF3A3A3C), Offset(x - 8.dp.toPx(), y), Offset(x + 8.dp.toPx(), y), 1.5.dp.toPx())
-    }
-}
-
-@Composable
-fun BoxScope.MixerSheet(studio: StudioState) {
-    Sheet(studio.panel == Panel.Mixer, { studio.panel = Panel.None }, T.mixer.t, padding = PaddingValues(0.dp)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp)) {
-            studio.project.tracks.forEachIndexed { i, t ->
-                Strip(
-                    t.name, trackColor(t.color), t.volumeDb,
-                    { db -> studio.edit { p -> p.mapTrack(t.id) { it.copy(volumeDb = db) } } },
-                    studio, listOf(2 + i),
-                ) {
-                    HSlider(
-                        (t.pan + 1) / 2, { v -> studio.edit { p -> p.mapTrack(t.id) { it.copy(pan = ((v * 2 - 1) * 20).toInt() / 20f) } } },
-                        Modifier.fillMaxWidth(), center = true, onStart = studio::beginGesture, onEnd = studio::endGesture,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Latch("M", t.mute, Color(0xFFD9A441), { studio.edit { p -> p.mapTrack(t.id) { it.copy(mute = !it.mute) } } })
-                        Latch("S", t.solo, Color(0xFF4A90E2), { studio.edit { p -> p.mapTrack(t.id) { it.copy(solo = !it.solo) } } })
-                    }
-                    Latch("FX", t.effects.isNotEmpty(), pal.accent.takeIf { !pal.dark } ?: Color(0xFF636366), { studio.panel = Panel.Effects(t.id) }, Modifier.width(56.dp))
-                }
-            }
-            Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(330.dp).background(pal.line))
-            Strip(T.master.t, pal.dim, studio.project.masterDb, { db -> studio.edit { it.copy(masterDb = db) } }, studio, listOf(0, 1)) {}
-        }
-    }
-}
-
-@Composable
-private fun Strip(
-    name: String, color: Color, db: Float, onDb: (Float) -> Unit, studio: StudioState, meters: List<Int>,
-    extra: @Composable () -> Unit,
-) {
-    Column(Modifier.width(72.dp).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.fillMaxWidth().height(4.dp).background(color, CircleShape))
-        Txt(name, style = type.small, align = TextAlign.Center)
-        Row(Modifier.height(190.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            VFader(dbToFader(db), { onDb(faderToDb(it)) }, studio::beginGesture, studio::endGesture, Modifier.width(40.dp).fillMaxHeight())
-            for (m in meters) MeterBar({ studio.meterTick; studio.levels[m] }, Modifier.width(5.dp).fillMaxHeight().padding(vertical = 14.dp))
-        }
-        Txt(fmtDb(db), style = type.small.copy(fontFeatureSettings = "tnum"), color = pal.dim)
-        extra()
-    }
-}
-
-@Composable
 fun BoxScope.TrackSettingsSheet(studio: StudioState) {
     val panel = lastPanel<Panel.TrackSettings>(studio)
     val track = panel?.let { studio.project.track(it.trackId) }
@@ -191,6 +107,8 @@ fun BoxScope.TrackSettingsSheet(studio: StudioState) {
                     else -> Btn(if (track.type == TrackType.Drums) T.pads.t else T.keys.t, { studio.selectedTrack = id; studio.panel = Panel.Play(id) }, Modifier.weight(1f), icon = Lucide.Keyboard)
                 }
             }
+            if (track.type.isMidi) Btn(T.newClip.t, { studio.panel = Panel.NoteEditor(studio.addMidiClip(track, studio.positionTick)) }, Modifier.fillMaxWidth(), icon = Lucide.Plus)
+            if (track.type == TrackType.Video) Btn(T.textOrShape.t, { studio.selectedTrack = id; studio.panel = Panel.AddOverlay }, Modifier.fillMaxWidth(), icon = Lucide.Type)
             if (track.type.isMidi) {
                 Hairline()
                 Txt(T.instrument.t, style = type.label, color = pal.dim)
@@ -203,7 +121,7 @@ fun BoxScope.TrackSettingsSheet(studio: StudioState) {
             }
             Btn(T.deleteTrack.t, {
                 studio.panel = Panel.None
-                studio.selectedClip = null
+                studio.selectClip(null)
                 studio.edit { it.removeTrack(id) }
                 studio.selectedTrack = studio.project.tracks.firstOrNull()?.id
             }, Modifier.fillMaxWidth(), danger = true, icon = Lucide.Trash2)

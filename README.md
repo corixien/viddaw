@@ -14,16 +14,23 @@ no account, no cloud, no ads, no tracking.
 
 ## Features
 
+- Timeline with the playhead fixed in the middle: scroll to move through the project, pinch to zoom
 - Audio tracks: record from the microphone, import any audio or video file the device can decode
-- Timeline editing: move, trim, split and duplicate clips, snap to grid, loop region, undo and redo
-- Mixer with volume, pan, mute, solo and level meters per track and for the master
+- Clip toolbar on selection: split, copy, paste, duplicate, delete, fades, gain, normalise,
+  time-stretch, transpose, loop
+- Multi-selection by long-press, clip groups that are moved and cut together
+- Mixer beside the tracks: swipe the track headers to the right for volume, pan, effects and the master
 - 13 effects per track chain: EQ, compressor, limiter, gate, reverb, delay, chorus, flanger,
   phaser, filter, distortion, stereo width, de-esser
 - Sampler and 16-pad drum rack with MIDI clips, piano roll, step grid, on-screen pads and keys
 - USB MIDI keyboards work when plugged in, Bluetooth MIDI through Settings
-- Video tracks: import clips, edit them like audio, preview in sync, export MP4
+- Video: an imported video becomes a picture clip and a sound clip, grouped; clips show their frames
+- Per video clip: colour, filters, blur, opacity, size, position, rotation, mirror, transitions in and out
+- Texts and shapes over the picture, placed with the fingers in the preview
 - Export to WAV (24 bit), FLAC, M4A (AAC) and MP4
 - Light, dark and system theme; English and German
+
+The screenshots show version 0.1.0.
 
 ## Install
 
@@ -74,10 +81,9 @@ planned desktop and web versions.
 
 ## Roadmap
 
-- Time-stretch and pitch-shift for audio clips
+- Video: several pictures at once (cross-dissolve, picture in picture), clip speed, images as overlays
 - Tempo-synced delay, automation, input monitoring
 - Desktop (Windows, Linux) and web builds on the same engine and UI
-- More video: transitions between tracks, titles, speed
 
 ## License
 

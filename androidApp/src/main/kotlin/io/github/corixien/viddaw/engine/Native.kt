@@ -26,6 +26,7 @@ object Native {
     external fun recordingPeaks(from: Int): FloatArray
     external fun peaks(path: String): FloatArray
     external fun fileFrames(path: String): Long
+    external fun stretch(src: String, dst: String, speed: Double, semitones: Double): Long
     external fun renderToFile(path: String, start: Long, end: Long, bits: Int): Boolean
     external fun renderProgress(): Float
     external fun cancelRender()
@@ -51,6 +52,7 @@ class NativeEngine : AudioEngine {
     override fun recordingPeaks(from: Int) = Native.recordingPeaks(from)
     override fun latencyFrames() = Native.latencyFrames()
     override fun peaks(path: String) = Native.peaks(path)
+    override fun stretch(src: String, dst: String, speed: Double, semitones: Double) = Native.stretch(src, dst, speed, semitones)
     override fun renderToFile(path: String, startFrame: Long, endFrame: Long, bits: Int) = Native.renderToFile(path, startFrame, endFrame, bits)
     override fun renderProgress() = Native.renderProgress()
     override fun cancelRender() = Native.cancelRender()

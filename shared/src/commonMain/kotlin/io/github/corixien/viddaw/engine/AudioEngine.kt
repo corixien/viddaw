@@ -32,6 +32,9 @@ interface AudioEngine {
     fun latencyFrames(): Int
     fun peaks(path: String): FloatArray
 
+    /** Blocking: renders [src] at another speed and pitch into [dst]. Returns its frames, 0 on failure. */
+    fun stretch(src: String, dst: String, speed: Double, semitones: Double): Long
+
     /** Blocking offline bounce; poll [renderProgress] from another thread. */
     fun renderToFile(path: String, startFrame: Long, endFrame: Long, bits: Int): Boolean
     fun renderProgress(): Float
@@ -70,6 +73,7 @@ fun engineSnapshot(p: Project, projectDir: String): String = buildString {
             else -> {}
         }
         for (c in t.clips) {
+            if (c.overlay != null) continue
             if (c.isMidi) {
                 for (n in c.notes) {
                     if (n.start < 0 || n.start >= c.length) continue
@@ -79,7 +83,7 @@ fun engineSnapshot(p: Project, projectDir: String): String = buildString {
                     append("N $start ${end - start} ${n.pitch} ${n.velocity}\n")
                 }
             } else if (c.file != null) {
-                append("C ${frames(c.start)} ${c.offset} ${c.frames} ${dbToLinear(c.gainDb)} ${path(c.file)}\n")
+                append("C ${frames(c.start)} ${c.offset} ${c.frames} ${dbToLinear(c.gainDb)} ${c.fadeIn} ${c.fadeOut} ${path(c.file)}\n")
             }
         }
         for (e in t.effects) {

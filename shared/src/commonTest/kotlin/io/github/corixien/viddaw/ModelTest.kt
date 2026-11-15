@@ -28,6 +28,7 @@ import io.github.corixien.viddaw.ui.dbToFader
 import io.github.corixien.viddaw.ui.faderToDb
 import io.github.corixien.viddaw.ui.fmt
 import kotlin.math.abs
+import io.github.corixien.viddaw.model.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -134,7 +135,7 @@ class ModelTest {
         // Solo on the sampler silences the other tracks.
         assertTrue(lines.any { it.startsWith("T $audioTrack 0 1.0 0.0 0") })
         assertTrue(lines.any { it.startsWith("T $samplerTrack 1 1.0 0.0 1") })
-        assertTrue("C 24000 1000 96000 1.0 /dir/audio/a.wav" in lines)
+        assertTrue("C 24000 1000 96000 1.0 0 0 /dir/audio/a.wav" in lines)
         assertTrue("N 0 6000 60 100" in lines)
         assertTrue("N 48000 6000 64 100" in lines)
         assertTrue(lines.any { it.startsWith("E ") && " comp 1 7 " in it })
@@ -178,5 +179,63 @@ class ModelTest {
         val restored = AppJson.decodeFromString<Project>(AppJson.encodeToString(p))
         assertEquals(p, restored)
         assertNotNull(restored.tracks[2].pads.getOrNull(15))
+    }
+
+    @Test
+    fun groupedClipsAreCutTogether() {
+        var p = Project("x", "x").addTrack(TrackType.Video, "V").addTrack(TrackType.Audio, "A")
+        val (v, a) = p.tracks.map { it.id }
+        p = p.addClip(v, Clip(0, 0, frames = 96000, fileFrames = 96000, video = "uri", group = 77))
+            .addClip(a, Clip(0, 0, file = "a.wav", frames = 96000, fileFrames = 96000, group = 77, fadeOut = 100))
+        val ids = p.tracks.flatMap { it.clips }.map { it.id }.toSet()
+        assertEquals(ids, p.withGroups(setOf(ids.first())))
+        val cut = p.splitClips(ids, PPQ * 2)
+        val left = cut.tracks.map { it.clips[0] }
+        val right = cut.tracks.map { it.clips[1] }
+        assertTrue(left.all { it.group == 77L && it.frames == 48000L && it.fadeOut == 0L })
+        assertTrue(right.all { it.offset == 48000L } && right[0].group == right[1].group && right[0].group != 77L)
+        assertEquals(100L, right[1].fadeOut)
+        // Moving the right pair leaves the left pair alone; the earliest clip stops at zero.
+        val moved = cut.moveClips(right.map { it.id }.toSet(), -PPQ * 10)
+        assertEquals(listOf(0L, 0L), moved.tracks.map { it.clips[1].start })
+        // A duplicate lands after the originals in a group of its own.
+        val twice = p.duplicateClips(ids)
+        val copies = twice.tracks.map { it.clips[1] }
+        assertTrue(copies.all { it.start == PPQ * 4 } && copies[0].group == copies[1].group && copies[0].group != 77L)
+        assertEquals(0L, p.groupClips(ids, false).tracks[0].clips[0].group)
+    }
+
+    @Test
+    fun pasteFallsBackToAFittingTrack() {
+        var p = Project("x", "x").addTrack(TrackType.Audio, "A").addTrack(TrackType.Drums, "D")
+        val (a, d) = p.tracks.map { it.id }
+        val clip = Clip(5, PPQ, file = "a.wav", frames = 1000, fileFrames = 1000)
+        p = p.insertCopies(listOf(999L to clip), PPQ * 3, fallbackTrack = d)
+        assertTrue(p.tracks.all { it.clips.isEmpty() })
+        p = p.insertCopies(listOf(999L to clip), PPQ * 3, fallbackTrack = a)
+        assertEquals(PPQ * 4, p.tracks[0].clips.single().start)
+    }
+
+    @Test
+    fun colorMatrixAndTransitions() {
+        val identity = VideoFx().colorMatrix()
+        assertEquals(listOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f), identity.toList())
+        val mono = VideoFx(filter = 1).colorMatrix()
+        assertEquals(mono[0], mono[4])
+        assertEquals(1f, mono[0] + mono[1] + mono[2], 1e-4f)
+        assertEquals(0.5f, VideoFx(opacity = 0.5f).colorMatrix()[0])
+        val fx = VideoFx(transIn = 1, transOut = 2, transInMs = 1000, transOutMs = 1000)
+        assertEquals(0f, fx.transitionAt(0.0, 4.0).fade)
+        assertEquals(1f, fx.transitionAt(2.0, 4.0).fade)
+        assertEquals(0f, fx.transitionAt(2.0, 4.0).dx)
+        assertEquals(-1f, fx.transitionAt(4.0, 4.0).dx)
+    }
+
+    @Test
+    fun midiStretchAndTranspose() {
+        val c = Clip(1, 0, length = PPQ * 4, notes = listOf(Note(PPQ * 2, PPQ, 60)))
+        val fast = c.stretchedNotes(2f).transposedNotes(3)
+        assertEquals(PPQ * 2, fast.length)
+        assertEquals(Note(PPQ, PPQ / 2, 63), fast.notes.single())
     }
 }

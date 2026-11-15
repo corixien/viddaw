@@ -1,7 +1,15 @@
 package io.github.corixien.viddaw.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -325,12 +333,19 @@ fun BoxScope.Sheet(
     onDismiss: () -> Unit,
     title: String? = null,
     maxHeightFraction: Float = 0.86f,
+    scrim: Boolean = true,
     padding: PaddingValues = PaddingValues(horizontal = 16.dp),
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val p = pal
-    AnimatedVisibility(visible, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+    val scope = rememberCoroutineScope()
+    // Dragging the handle or title down pulls the sheet with the finger and closes it past a threshold.
+    val pull = remember { Animatable(0f) }
+    val dismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(visible) { if (visible) pull.snapTo(0f) }
+    // Without a scrim the screen behind stays usable; the sheet then closes by its handle or button.
+    if (scrim) AnimatedVisibility(visible, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
         Box(Modifier.fillMaxSize().background(p.scrim).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss))
     }
     AnimatedVisibility(
@@ -342,24 +357,43 @@ fun BoxScope.Sheet(
         BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
             Column(
                 Modifier.widthIn(max = 640.dp).fillMaxWidth().heightIn(max = maxHeight * maxHeightFraction)
+                    .offset { IntOffset(0, pull.value.roundToInt()) }
+                    .then(if (scrim) Modifier else Modifier.border(1.dp, p.line, RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet)))
                     .clip(RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet))
                     .background(p.surface)
                     .clickable(remember { MutableInteractionSource() }, null) {}
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
             ) {
-                Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(36.dp, 4.dp).background(p.line, CircleShape))
-                }
-                if (title != null) {
-                    Row(
-                        Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Txt(title, Modifier.weight(1f), type.heading)
-                        actions()
+                Column(
+                    Modifier.fillMaxWidth().pointerInput(Unit) {
+                        val velocity = VelocityTracker()
+                        detectVerticalDragGestures(
+                            onDragStart = { velocity.resetTracking() },
+                            onDragEnd = {
+                                if (pull.value > 72.dp.toPx() || velocity.calculateVelocity().y > 900f) dismiss()
+                                else scope.launch { pull.animateTo(0f, spring(stiffness = Spring.StiffnessMedium)) }
+                            },
+                            onDragCancel = { scope.launch { pull.animateTo(0f) } },
+                        ) { change, dy ->
+                            velocity.addPosition(change.uptimeMillis, change.position)
+                            scope.launch { pull.snapTo((pull.value + dy).coerceAtLeast(0f)) }
+                        }
+                    },
+                ) {
+                    Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(36.dp, 4.dp).background(p.line, CircleShape))
                     }
-                } else {
-                    Spacer(Modifier.height(10.dp))
+                    if (title != null) {
+                        Row(
+                            Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Txt(title, Modifier.weight(1f), type.heading)
+                            actions()
+                        }
+                    } else {
+                        Spacer(Modifier.height(14.dp))
+                    }
                 }
                 Column(Modifier.padding(padding), content = content)
                 Spacer(Modifier.height(12.dp))

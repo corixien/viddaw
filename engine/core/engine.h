@@ -27,7 +27,7 @@ public:
     // Snapshot format, one record per line, positions in frames, gains linear:
     //   P framesPerBeat beatsPerBar loop loopStart loopEnd masterGain metronome
     //   T id type(0 audio,1 sampler,2 drums) gain pan audible
-    //   C start offset frames gain path            audio clip of the last track
+    //   C start offset frames gain fadeIn fadeOut path   audio clip of the last track, fades in frames
     //   N start length pitch velocity              note of the last track
     //   E id type enabled count p0 p1 ...          effect of the last track, in chain order
     //   S root tune attackMs releaseMs gain path   sampler of the last track ("-" = built-in)
@@ -73,7 +73,7 @@ private:
         Instrument instrument;
     };
     struct Clip {
-        int64_t start, offset, frames;
+        int64_t start, offset, frames, fadeIn, fadeOut;
         float gain;
         std::shared_ptr<AudioFile> file;
     };
