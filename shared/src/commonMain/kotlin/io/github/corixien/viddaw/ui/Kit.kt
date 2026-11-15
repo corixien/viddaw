@@ -253,7 +253,7 @@ fun SliderRow(
     onEnd: () -> Unit = {},
 ) {
     Row(modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
-        Txt(label, Modifier.width(92.dp), type.label, pal.dim)
+        if (label.isNotEmpty()) Txt(label, Modifier.width(92.dp), type.label, pal.dim)
         HSlider(value, onChange, Modifier.weight(1f), color, center, onStart, onEnd)
         Txt(valueText, Modifier.width(72.dp), type.label.copy(fontFeatureSettings = "tnum"), align = TextAlign.End)
     }

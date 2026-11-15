@@ -127,7 +127,7 @@ private fun TrackHeader(studio: StudioState, track: Track, index: Int) {
     Row(
         Modifier.fillMaxWidth().height(TrackHeight).background(bg)
             .clickable(remember { MutableInteractionSource() }, null) {
-                if (selected) studio.panel = Panel.TrackSettings(track.id) else studio.selectedTrack = track.id
+                if (selected) studio.panel = Panel.TrackSettings(track.id) else studio.selectTrack(track.id)
             },
     ) {
         Box(Modifier.width(4.dp).fillMaxHeight().background(trackColor(track.color)))

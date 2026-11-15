@@ -222,7 +222,13 @@ class StudioState(
 
     fun addTrack(type: TrackType, name: String) {
         edit { it.addTrack(type, name) }
-        selectedTrack = project.tracks.last().id
+        selectTrack(project.tracks.last().id)
+    }
+
+    /** Selecting a track drops a clip selection that belongs to another track. */
+    fun selectTrack(id: Long) {
+        selectedTrack = id
+        if (selectedClip?.let { project.trackOfClip(it)?.id } != id) selectedClip = null
     }
 
     fun selectClip(id: Long?) {
@@ -473,7 +479,7 @@ class StudioState(
         }
     }
 
-    val hasVideo: Boolean get() = project.tracks.any { it.type == TrackType.Video }
+    val hasVideo: Boolean get() = project.tracks.any { t -> t.type == TrackType.Video && t.clips.isNotEmpty() }
 
     fun export(format: ExportFormat) = scope.launch {
         val end = ticksToFrames(project.endTick(), project.bpm)
