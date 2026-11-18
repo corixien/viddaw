@@ -325,9 +325,9 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
 
     override suspend fun videoFrame(uri: String, timeMs: Long, height: Int): ImageBitmap? = video.frame(uri, timeMs, height)
 
-    override suspend fun exportVideo(segments: List<VideoSegment>, overlays: List<OverlaySegment>, wavPath: String, totalSec: Double, name: String, onProgress: (Float) -> Unit): String? {
+    override suspend fun exportVideo(segments: List<VideoSegment>, overlays: List<OverlaySegment>, wavPath: String, totalSec: Double, name: String, aspect: Float, onProgress: (Float) -> Unit): String? {
         val out = File(activity.cacheDir, "export.mp4")
-        val ok = runCatching { video.export(segments, overlays, wavPath, totalSec, out, onProgress) }
+        val ok = runCatching { video.export(segments, overlays, wavPath, totalSec, aspect, out, onProgress) }
             .onFailure { android.util.Log.e("Viddaw", "video export failed", it) }.getOrDefault(false)
         if (!ok) return null
         return withContext(Dispatchers.IO) { publish(out, name, "mp4", "video/mp4", video = true).also { out.delete() } }

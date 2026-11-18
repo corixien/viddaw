@@ -8,6 +8,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -123,7 +128,7 @@ fun ClipToolbar(studio: StudioState, vScroll: ScrollState, widthPx: Float, heade
             TrackType.Audio -> extra += Action(Lucide.Import, T.importAudio.t) { studio.spot = null; studio.seekTick(spot.tick); studio.importAudio() }
             TrackType.Video -> {
                 extra += Action(Lucide.Import, T.importVideo.t) { studio.spot = null; studio.seekTick(spot.tick); studio.importVideo() }
-                extra += Action(Lucide.Type, T.textOrShape.t) { studio.spot = null; studio.seekTick(spot.tick); studio.panel = Panel.AddOverlay }
+                extra += Action(Lucide.Shapes, T.textOrShape.t) { studio.spot = null; studio.seekTick(spot.tick); studio.panel = Panel.AddOverlay }
             }
             TrackType.Sampler, TrackType.Drums -> extra += Action(Lucide.Plus, T.newClip.t) {
                 studio.spot = null
@@ -139,6 +144,29 @@ fun ClipToolbar(studio: StudioState, vScroll: ScrollState, widthPx: Float, heade
         kept[1] = extra
     }
 
+    // The bar keeps its place and size; the unfolded list hangs below it and only pushes the bar up when the screen ends.
+    var barSize by remember { mutableStateOf(IntSize.Zero) }
+    var popupHeight by remember { mutableIntStateOf(0) }
+    val shape = RoundedCornerShape(Radius.panel)
+    val gap = 6.dp
+
+    @Composable
+    fun ExtraList(modifier: Modifier) {
+        Column(modifier) {
+            for (pair in kept[1].chunked(2)) Row(Modifier.fillMaxWidth()) {
+                for (a in pair) Row(
+                    Modifier.weight(1f).height(38.dp).pressable { more = false; a.run() }.padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(a.icon, pal.text, 16.dp)
+                    Txt(a.label, style = type.small)
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
     AnimatedVisibility(
         shown,
         Modifier.layout { measurable, c ->
@@ -148,39 +176,42 @@ fun ClipToolbar(studio: StudioState, vScroll: ScrollState, widthPx: Float, heade
                 studio.selectedClip?.let { clipBounds(studio, it, widthPx, density, scrollY) }?.let { anchor[0] = it }
                     ?: studio.spot?.let { spotOffset(studio, it, widthPx, density, scrollY) }?.let { anchor[0] = Rect(it.x, it.y, it.x, it.y + TrackHeight.toPx()) }
                 val a = anchor[0]
-                val gap = 6.dp.toPx()
+                val space = 6.dp.toPx()
                 val edge = 8.dp.toPx()
                 val centre = (maxOf(a.left, headerPx) + minOf(a.right, widthPx)) / 2
                 val maxX = (c.maxWidth - edge - p.width).coerceAtLeast(edge)
                 val x = (centre - p.width / 2).coerceIn(edge, maxX)
-                val above = a.top - gap - p.height
-                val y = if (above >= RulerHeight.toPx()) above else a.bottom + gap
-                p.place(x.roundToInt(), y.roundToInt().coerceIn(0, (c.maxHeight - p.height).coerceAtLeast(0)))
+                val above = a.top - space - p.height
+                val y = if (above >= RulerHeight.toPx()) above else a.bottom + space
+                val reach = p.height + if (more && kept[0].isNotEmpty()) popupHeight else 0
+                p.place(x.roundToInt(), y.roundToInt().coerceIn(0, (c.maxHeight - reach).coerceAtLeast(0)))
             }
         },
         enter = fadeIn(tween(120)) + scaleIn(spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium), initialScale = 0.8f),
         exit = fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.9f),
     ) {
-        val shape = RoundedCornerShape(Radius.panel)
-        Column(Modifier.clip(shape).background(pal.raised).border(1.dp, pal.line, shape).padding(4.dp)) {
-            if (kept[0].isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    for (a in kept[0]) IconBtn(a.icon, a.run, tint = if (a.danger) pal.record else null)
-                    if (kept[1].isNotEmpty()) IconBtn(Lucide.Ellipsis, { more = !more }, active = more)
-                }
+        Box {
+            Column(
+                Modifier.onSizeChanged { barSize = it }.clip(shape).background(pal.raised).border(1.dp, pal.line, shape).padding(4.dp),
+            ) {
+                if (kept[0].isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        for (a in kept[0]) IconBtn(a.icon, a.run, tint = if (a.danger) pal.record else null)
+                        if (kept[1].isNotEmpty()) IconBtn(Lucide.Ellipsis, { more = !more }, active = more)
+                    }
+                } else ExtraList(Modifier.width(236.dp))
             }
-            AnimatedVisibility(more || kept[0].isEmpty()) {
-                Column {
-                    if (kept[0].isNotEmpty()) Hairline(Modifier.width(236.dp).padding(vertical = 4.dp))
-                    for (pair in kept[1].chunked(2)) Row {
-                        for (a in pair) Row(
-                            Modifier.width(118.dp).height(38.dp).pressable { more = false; a.run() }.padding(horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(a.icon, pal.text, 16.dp)
-                            Txt(a.label, style = type.small)
-                        }
+            if (kept[0].isNotEmpty()) {
+                Box(
+                    Modifier.layout { measurable, c ->
+                        val width = barSize.width
+                        val p = measurable.measure(Constraints(minWidth = width, maxWidth = width))
+                        popupHeight = p.height + gap.roundToPx()
+                        layout(0, 0) { p.place(0, barSize.height + gap.roundToPx()) }
+                    },
+                ) {
+                    AnimatedVisibility(more, enter = fadeIn(tween(120)) + expandVertically(), exit = fadeOut(tween(100)) + shrinkVertically()) {
+                        ExtraList(Modifier.fillMaxWidth().clip(shape).background(pal.raised).border(1.dp, pal.line, shape).padding(4.dp))
                     }
                 }
             }
@@ -264,12 +295,12 @@ private fun FadeTool(studio: StudioState, clip: Clip) {
     SliderRow(
         T.fadeIn.t, text(clip.fadeIn), clip.fadeIn.toFloat() / maxFrames,
         { v -> studio.editClips { if (it.isAudio) it.copy(fadeIn = (v * maxFrames).toLong().coerceAtMost(it.frames)) else it } },
-        onStart = studio::beginGesture, onEnd = studio::endGesture,
+        onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 0f,
     )
     SliderRow(
         T.fadeOut.t, text(clip.fadeOut), clip.fadeOut.toFloat() / maxFrames,
         { v -> studio.editClips { if (it.isAudio) it.copy(fadeOut = (v * maxFrames).toLong().coerceAtMost(it.frames)) else it } },
-        onStart = studio::beginGesture, onEnd = studio::endGesture,
+        onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 0f,
     )
 }
 
@@ -314,8 +345,8 @@ private fun LookTool(studio: StudioState, fx: VideoFx) {
     Spacer(Modifier.height(6.dp))
     Choices(T.filterNames.map { it.t }, fx.filter, 3) { i -> studio.editFx { it.copy(filter = i) } }
     Spacer(Modifier.height(6.dp))
-    SliderRow(T.blur.t, percent(fx.blur), fx.blur, { v -> studio.editFx { it.copy(blur = (v * 50).roundToInt() / 50f) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
-    SliderRow(T.opacity.t, percent(fx.opacity), fx.opacity, { v -> studio.editFx { it.copy(opacity = (v * 50).roundToInt() / 50f) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
+    SliderRow(T.blur.t, percent(fx.blur), fx.blur, { v -> studio.editFx { it.copy(blur = (v * 50).roundToInt() / 50f) } }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 0f)
+    SliderRow(T.opacity.t, percent(fx.opacity), fx.opacity, { v -> studio.editFx { it.copy(opacity = (v * 50).roundToInt() / 50f) } }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 1f)
 }
 
 @Composable
@@ -323,7 +354,7 @@ private fun TransformTool(studio: StudioState, fx: VideoFx) {
     val g = studio::beginGesture
     val e = studio::endGesture
     Txt(T.previewHint.t, style = type.small, color = pal.dim, maxLines = 2)
-    SliderRow(T.scale.t, percent(fx.scale), (fx.scale - 0.2f) / 2.8f, { v -> studio.editFx { it.copy(scale = ((0.2f + v * 2.8f) * 50).roundToInt() / 50f) } }, onStart = g, onEnd = e)
+    SliderRow(T.scale.t, percent(fx.scale), (fx.scale - 0.2f) / 2.8f, { v -> studio.editFx { it.copy(scale = ((0.2f + v * 2.8f) * 50).roundToInt() / 50f) } }, onStart = g, onEnd = e, reset = 0.8f / 2.8f)
     SliderRow(T.posX.t, percent(fx.x), (fx.x + 1) / 2, { v -> studio.editFx { it.copy(x = ((v * 2 - 1) * 100).roundToInt() / 100f) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.posY.t, percent(fx.y), (fx.y + 1) / 2, { v -> studio.editFx { it.copy(y = ((v * 2 - 1) * 100).roundToInt() / 100f) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.rotation.t, "${fx.rotation.roundToInt()}°", (fx.rotation + 180) / 360, { v -> studio.editFx { it.copy(rotation = (v * 360 - 180).roundToInt().toFloat()) } }, center = true, onStart = g, onEnd = e)
@@ -341,11 +372,11 @@ private fun TransitionTool(studio: StudioState, fx: VideoFx) {
     Label(T.transIn.t)
     Spacer(Modifier.height(6.dp))
     Choices(names, fx.transIn, 3) { i -> studio.editFx { it.copy(transIn = i) } }
-    SliderRow(T.duration.t, "${fmt(fx.transInMs / 1000f, 2)} s", (fx.transInMs - 100) / 2900f, { v -> studio.editFx { it.copy(transInMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
+    SliderRow(T.duration.t, "${fmt(fx.transInMs / 1000f, 2)} s", (fx.transInMs - 100) / 2900f, { v -> studio.editFx { it.copy(transInMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 400 / 2900f)
     Label(T.transOut.t)
     Spacer(Modifier.height(6.dp))
     Choices(names, fx.transOut, 3) { i -> studio.editFx { it.copy(transOut = i) } }
-    SliderRow(T.duration.t, "${fmt(fx.transOutMs / 1000f, 2)} s", (fx.transOutMs - 100) / 2900f, { v -> studio.editFx { it.copy(transOutMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture)
+    SliderRow(T.duration.t, "${fmt(fx.transOutMs / 1000f, 2)} s", (fx.transOutMs - 100) / 2900f, { v -> studio.editFx { it.copy(transOutMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 400 / 2900f)
 }
 
 @Composable
@@ -368,10 +399,10 @@ private fun OverlayTool(studio: StudioState, o: Overlay) {
             )
         }
     }
-    SliderRow(T.scale.t, percent(o.size), (o.size - 0.02f) / 0.78f, { v -> set { it.copy(size = ((0.02f + v * 0.78f) * 200).roundToInt() / 200f) } }, onStart = g, onEnd = e)
+    SliderRow(T.scale.t, percent(o.size), (o.size - 0.02f) / 0.78f, { v -> set { it.copy(size = ((0.02f + v * 0.78f) * 200).roundToInt() / 200f) } }, onStart = g, onEnd = e, reset = (0.12f - 0.02f) / 0.78f)
     if (o.kind != 0) SliderRow(T.width.t, "${fmt(o.aspect, 1)}×", (log2(o.aspect) + 3) / 6, { v -> set { it.copy(aspect = (2f.pow(v * 6 - 3) * 10).roundToInt() / 10f) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.rotation.t, "${o.rotation.roundToInt()}°", (o.rotation + 180) / 360, { v -> set { it.copy(rotation = (v * 360 - 180).roundToInt().toFloat()) } }, center = true, onStart = g, onEnd = e)
-    SliderRow(T.opacity.t, percent(o.opacity), o.opacity, { v -> set { it.copy(opacity = (v * 50).roundToInt() / 50f) } }, onStart = g, onEnd = e)
+    SliderRow(T.opacity.t, percent(o.opacity), o.opacity, { v -> set { it.copy(opacity = (v * 50).roundToInt() / 50f) } }, onStart = g, onEnd = e, reset = 1f)
     if (o.kind == 0) {
         Spacer(Modifier.height(8.dp))
         Btn(T.plate.t, { set { it.copy(box = !it.box) } }, Modifier.fillMaxWidth(), primary = o.box)

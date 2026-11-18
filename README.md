@@ -26,11 +26,12 @@ no account, no cloud, no ads, no tracking.
 - USB MIDI keyboards work when plugged in, Bluetooth MIDI through Settings
 - Video: an imported video becomes a picture clip and a sound clip, grouped; clips show their frames
 - Per video clip: colour, filters, blur, opacity, size, position, rotation, mirror, transitions in and out
-- Texts and shapes over the picture, placed with the fingers in the preview
+- Texts and shapes over the picture, placed with the fingers in the preview, with snapping and an optional grid
+- Automation lanes for volume, pan, effect parameters and video settings; EQ with five draggable bands
 - Export to WAV (24 bit), FLAC, M4A (AAC) and MP4
 - Light, dark and system theme; English and German
 
-The screenshots show version 0.1.0.
+The screenshots show version 0.1.0. Double tap a slider to reset it.
 
 ## Install
 

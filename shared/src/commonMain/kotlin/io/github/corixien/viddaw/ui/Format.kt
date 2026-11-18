@@ -1,11 +1,11 @@
 package io.github.corixien.viddaw.ui
 
 import io.github.corixien.viddaw.model.MIN_DB
+import kotlin.math.pow
+import kotlin.math.sqrt
 import io.github.corixien.viddaw.model.ParamSpec
 import kotlin.math.abs
-import kotlin.math.pow
 import kotlin.math.roundToLong
-import kotlin.math.sqrt
 
 fun fmt(v: Float, decimals: Int = 1): String {
     val scale = 10.0.pow(decimals)
@@ -35,12 +35,3 @@ fun paramText(spec: ParamSpec, v: Float): String = when {
 private val NOTE_NAMES = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 fun noteName(pitch: Int): String = "${NOTE_NAMES[pitch % 12]}${pitch / 12 - 1}"
 fun isBlackKey(pitch: Int): Boolean = (pitch % 12) in setOf(1, 3, 6, 8, 10)
-
-/** Fader travel 0..1 to dB: unity at three quarters, +6 dB at the top, silence at the bottom. */
-fun faderToDb(n: Float): Float {
-    val v = n.coerceIn(0f, 1f)
-    return if (v >= 0.75f) (v - 0.75f) / 0.25f * 6f else MIN_DB * (1f - v / 0.75f).pow(2)
-}
-
-fun dbToFader(db: Float): Float =
-    if (db >= 0f) 0.75f + (db.coerceAtMost(6f) / 6f) * 0.25f else 0.75f * (1f - sqrt(db.coerceAtLeast(MIN_DB) / MIN_DB))

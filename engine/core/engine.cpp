@@ -140,6 +140,23 @@ void Engine::sync(const std::string& text) {
             slot.second->enabled.store(enabled != 0);
             track->effects.push_back(slot.second);
             liveEffects.insert(id);
+        } else if (tag == 'A') {
+            Lane lane;
+            int64_t effect;
+            int count;
+            in >> lane.target >> effect >> lane.param >> count;
+            for (int i = 0; i < count; i++) {
+                int64_t at;
+                float v;
+                in >> at >> v;
+                lane.at.push_back(at), lane.value.push_back(v);
+            }
+            if (lane.target == 2) {
+                auto it = effects_.find(effect);
+                if (it == effects_.end() || !it->second.second || lane.param < 0 || lane.param >= Effect::kMaxParams) continue;
+                lane.fx = it->second.second;
+            }
+            if (!lane.at.empty()) track->lanes.push_back(std::move(lane));
         } else if (tag == 'S') {
             auto& ic = track->instrument;
             in >> ic.root >> ic.tune >> ic.attackMs >> ic.releaseMs >> ic.gain;
@@ -276,11 +293,29 @@ void Engine::render(float* out, int frames) {
     }
 }
 
+// Value of an automation lane at a frame: linear between points, flat outside them.
+static float laneAt(const std::vector<int64_t>& at, const std::vector<float>& value, int64_t pos) {
+    if (pos <= at.front()) return value.front();
+    if (pos >= at.back()) return value.back();
+    const size_t i = (size_t)(std::upper_bound(at.begin(), at.end(), pos) - at.begin());
+    const double f = (double)(pos - at[i - 1]) / (double)(at[i] - at[i - 1]);
+    return value[i - 1] + (value[i] - value[i - 1]) * (float)f;
+}
+
 void Engine::renderTrack(Track& t, int n, bool playing) {
     std::memset(bufL_, 0, sizeof(float) * (size_t)n);
     std::memset(bufR_, 0, sizeof(float) * (size_t)n);
     const int64_t pos = pos_.load(std::memory_order_relaxed);
     TrackRt& rt = *t.rt;
+
+    // Automation overrides the fixed setting, also while stopped so the sound at the playhead is the lane's.
+    float laneGain = t.gain, lanePan = t.pan;
+    for (const Lane& lane : t.lanes) {
+        const float v = laneAt(lane.at, lane.value, pos);
+        if (lane.target == 0) laneGain = v;
+        else if (lane.target == 1) lanePan = std::clamp(v, -1.f, 1.f);
+        else lane.fx->params[lane.param].store(v, std::memory_order_relaxed);
+    }
 
     if (playing) {
         for (const Clip& c : t.clips) {
@@ -315,8 +350,8 @@ void Engine::renderTrack(Track& t, int n, bool playing) {
     for (auto& fx : t.effects)
         if (fx->enabled.load(std::memory_order_relaxed)) fx->process(bufL_, bufR_, n);
 
-    const float gain = t.audible ? t.gain : 0.f;
-    const float targetL = gain * std::min(1.f, 1.f - t.pan), targetR = gain * std::min(1.f, 1.f + t.pan);
+    const float gain = t.audible ? laneGain : 0.f;
+    const float targetL = gain * std::min(1.f, 1.f - lanePan), targetR = gain * std::min(1.f, 1.f + lanePan);
     if (!rt.primed) rt.gainL = targetL, rt.gainR = targetR, rt.primed = true;
     const float stepL = (targetL - rt.gainL) / (float)n, stepR = (targetR - rt.gainR) / (float)n;
     float peak = 0;

@@ -30,6 +30,8 @@ public:
     //   C start offset frames gain fadeIn fadeOut path   audio clip of the last track, fades in frames
     //   N start length pitch velocity              note of the last track
     //   E id type enabled count p0 p1 ...          effect of the last track, in chain order
+    //   A target effect param count tick value ...  automation of the last track; target 0 gain (linear),
+    //                                      1 pan, 2 parameter of effect; ticks are frames; follows the E lines
     //   S root tune attackMs releaseMs gain path   sampler of the last track ("-" = built-in)
     //   D pad gain pan tune path                   drum pad of the last track ("-" = built-in)
     void sync(const std::string& snapshot);
@@ -82,6 +84,12 @@ private:
         uint8_t pitch, velocity;
         bool on;
     };
+    struct Lane {
+        int target = 0, param = 0;
+        std::shared_ptr<Effect> fx;
+        std::vector<int64_t> at;
+        std::vector<float> value;
+    };
     struct Track {
         int64_t id = 0;
         int type = 0;
@@ -90,6 +98,7 @@ private:
         std::vector<Clip> clips;
         std::vector<MidiEvent> events;
         std::vector<std::shared_ptr<Effect>> effects;
+        std::vector<Lane> lanes;
         InstrumentConfig instrument;
         std::shared_ptr<TrackRt> rt;
     };

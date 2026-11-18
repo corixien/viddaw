@@ -99,9 +99,9 @@ struct DelayLine {
 };
 
 // 0 hpFreq 1 lowGain 2 lowFreq 3 mid1Gain 4 mid1Freq 5 mid1Q 6 mid2Gain 7 mid2Freq 8 mid2Q
-// 9 highGain 10 highFreq 11 lpFreq
+// 9 highGain 10 highFreq 11 lpFreq 12 mid3Gain 13 mid3Freq 14 mid3Q
 class Eq : public Effect {
-    Biquad band_[6];
+    Biquad band_[7];
 
 public:
     void process(float* l, float* r, int n) override {
@@ -112,6 +112,7 @@ public:
             band_[3].set(Biquad::Peak, p(7), p(8), p(6));
             band_[4].set(Biquad::HighShelf, p(10), 0.707f, p(9));
             if (p(11) < 19900) band_[5].set(Biquad::LowPass, p(11), 0.707f, 0); else band_[5].bypass();
+            band_[6].set(Biquad::Peak, p(13), p(14), p(12));
         }
         for (int i = 0; i < n; i++) {
             float a = l[i], b = r[i];

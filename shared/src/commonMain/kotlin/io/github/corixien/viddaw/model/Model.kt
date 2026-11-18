@@ -88,6 +88,7 @@ data class Track(
     val effects: List<EffectInstance> = emptyList(),
     val sampler: SamplerConfig = SamplerConfig(),
     val pads: List<DrumPad> = List(PAD_COUNT) { DrumPad() },
+    val lanes: List<Lane> = emptyList(),
 )
 
 @Serializable
@@ -101,6 +102,7 @@ data class Project(
     val loopEnd: Long = PPQ * 16,
     val loopEnabled: Boolean = false,
     val metronome: Boolean = false,
+    val frame: Int = 0,  // picture format: 0 as the first video, 1 16:9, 2 9:16, 3 1:1, 4 4:3
     val masterDb: Float = 0f,
     val nextId: Long = 1,
     val modifiedAt: Long = 0,

@@ -28,6 +28,9 @@ DAW-style audio and video editor for Android, later desktop and web. Local only.
 - Clip actions act on `StudioState.targets()` (selection plus groups), never on a single clip id.
 - A video clip must look the same in preview and export: `VideoFx.colorMatrix` and `VideoFx.transitionAt` (`model/Video.kt`) feed both, and `drawOverlay` (`ui/ClipTools.kt`) is mirrored by `overlayBitmap` (`VideoSupport.kt`). Change them together.
 
+- Automation lanes: row heights vary, so map y to rows only through `StudioState.rows()` (`ui/Timeline.kt`). Lane values are normalised 0..1; `Track.laneValue` converts to engine units for the snapshot (`A` records) and for `VideoAuto`.
+- EQ parameter 12-14 (Mid 3) were appended; keep new parameters at the end so saved projects stay valid.
+
 ## Design
 Flat, no gradients, macOS feel, graphite accent. Colour only from tracks and clips, red for
 recording. Own components in `ui/Kit.kt`, no Material widgets. Animations answer user actions.

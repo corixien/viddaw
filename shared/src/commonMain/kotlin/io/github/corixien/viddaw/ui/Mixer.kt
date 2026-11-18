@@ -1,5 +1,7 @@
 package io.github.corixien.viddaw.ui
 
+import io.github.corixien.viddaw.model.dbToFader
+import io.github.corixien.viddaw.model.faderToDb
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -92,7 +94,7 @@ fun BoxScope.TrackSettingsSheet(studio: StudioState) {
             SliderRow(
                 T.volume.t, fmtDb(track.volumeDb), dbToFader(track.volumeDb),
                 { v -> studio.edit { p -> p.mapTrack(id) { it.copy(volumeDb = faderToDb(v)) } } },
-                onStart = studio::beginGesture, onEnd = studio::endGesture,
+                onStart = studio::beginGesture, onEnd = studio::endGesture, reset = dbToFader(0f),
             )
             SliderRow(
                 T.pan.t, fmtPan(track.pan), (track.pan + 1) / 2,
@@ -108,17 +110,13 @@ fun BoxScope.TrackSettingsSheet(studio: StudioState) {
                 }
             }
             if (track.type.isMidi) Btn(T.newClip.t, { studio.panel = Panel.NoteEditor(studio.addMidiClip(track, studio.positionTick)) }, Modifier.fillMaxWidth(), icon = Lucide.Plus)
-            if (track.type == TrackType.Video) Btn(T.textOrShape.t, { studio.selectedTrack = id; studio.panel = Panel.AddOverlay }, Modifier.fillMaxWidth(), icon = Lucide.Type)
+            if (track.type == TrackType.Video) Btn(T.textOrShape.t, { studio.selectedTrack = id; studio.panel = Panel.AddOverlay }, Modifier.fillMaxWidth(), icon = Lucide.Shapes)
             if (track.type.isMidi) {
                 Hairline()
                 Txt(T.instrument.t, style = type.label, color = pal.dim)
                 if (track.type == TrackType.Sampler) SamplerSettings(studio, track) else DrumSettings(studio, track)
             }
             Hairline()
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn(T.moveUp.t, { studio.edit { it.moveTrack(id, -1) } }, Modifier.weight(1f))
-                Btn(T.moveDown.t, { studio.edit { it.moveTrack(id, 1) } }, Modifier.weight(1f))
-            }
             Btn(T.deleteTrack.t, {
                 studio.panel = Panel.None
                 studio.selectClip(null)
@@ -142,11 +140,11 @@ private fun SamplerSettings(studio: StudioState, track: Track) {
     }
     val g = studio::beginGesture
     val e = studio::endGesture
-    SliderRow(T.rootNote.t, noteName(s.root), (s.root - 24) / 72f, { v -> set { it.copy(root = 24 + (v * 72).toInt()) } }, onStart = g, onEnd = e)
+    SliderRow(T.rootNote.t, noteName(s.root), (s.root - 24) / 72f, { v -> set { it.copy(root = 24 + (v * 72).toInt()) } }, onStart = g, onEnd = e, reset = 36 / 72f)
     SliderRow(T.tune.t, "${fmt(s.tune, 1)} st", (s.tune + 12) / 24f, { v -> set { it.copy(tune = ((v * 24 - 12) * 10).toInt() / 10f) } }, center = true, onStart = g, onEnd = e)
-    SliderRow(T.attack.t, "${fmt(s.attackMs, 0)} ms", s.attackMs / 500f, { v -> set { it.copy(attackMs = (v * 500).coerceAtLeast(1f)) } }, onStart = g, onEnd = e)
-    SliderRow(T.release.t, "${fmt(s.releaseMs, 0)} ms", s.releaseMs / 3000f, { v -> set { it.copy(releaseMs = (v * 3000).coerceAtLeast(5f)) } }, onStart = g, onEnd = e)
-    SliderRow(T.gain.t, fmtDb(s.gainDb), (s.gainDb + 24) / 36f, { v -> set { it.copy(gainDb = ((v * 36 - 24) * 2).toInt() / 2f) } }, onStart = g, onEnd = e)
+    SliderRow(T.attack.t, "${fmt(s.attackMs, 0)} ms", s.attackMs / 500f, { v -> set { it.copy(attackMs = (v * 500).coerceAtLeast(1f)) } }, onStart = g, onEnd = e, reset = 2 / 500f)
+    SliderRow(T.release.t, "${fmt(s.releaseMs, 0)} ms", s.releaseMs / 3000f, { v -> set { it.copy(releaseMs = (v * 3000).coerceAtLeast(5f)) } }, onStart = g, onEnd = e, reset = 200 / 3000f)
+    SliderRow(T.gain.t, fmtDb(s.gainDb), (s.gainDb + 24) / 36f, { v -> set { it.copy(gainDb = ((v * 36 - 24) * 2).toInt() / 2f) } }, onStart = g, onEnd = e, reset = 24 / 36f)
 }
 
 @Composable
@@ -176,7 +174,7 @@ private fun DrumSettings(studio: StudioState, track: Track) {
     }
     val g = studio::beginGesture
     val e = studio::endGesture
-    SliderRow(T.gain.t, fmtDb(d.gainDb), (d.gainDb + 24) / 36f, { v -> set { it.copy(gainDb = ((v * 36 - 24) * 2).toInt() / 2f) } }, onStart = g, onEnd = e)
+    SliderRow(T.gain.t, fmtDb(d.gainDb), (d.gainDb + 24) / 36f, { v -> set { it.copy(gainDb = ((v * 36 - 24) * 2).toInt() / 2f) } }, onStart = g, onEnd = e, reset = 24 / 36f)
     SliderRow(T.pan.t, fmtPan(d.pan), (d.pan + 1) / 2, { v -> set { it.copy(pan = ((v * 2 - 1) * 50).toInt() / 50f) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.tune.t, "${fmt(d.tune, 1)} st", (d.tune + 12) / 24f, { v -> set { it.copy(tune = ((v * 24 - 12) * 10).toInt() / 10f) } }, center = true, onStart = g, onEnd = e)
 }
@@ -206,16 +204,19 @@ fun BoxScope.EffectsSheet(studio: StudioState) {
                     }
                     AnimatedVisibility(open == fx.id) {
                         Column(Modifier.padding(start = 6.dp, end = 2.dp, bottom = 8.dp)) {
-                            spec.params.forEachIndexed { i, ps ->
+                            fun setParam(i: Int, nv: Float) = studio.edit { it.mapEffect(id, fx.id) { e -> e.copy(params = spec.params.indices.map { k -> if (k == i) nv else e.params.getOrElse(k) { spec.params[k].default } }) } }
+                            if (spec.type == "eq") {
+                                EqEditor(spec, fx.params, ::setParam, studio::beginGesture, studio::endGesture)
+                            } else spec.params.forEachIndexed { i, ps ->
                                 val v = fx.params.getOrElse(i) { ps.default }
-                                fun set(nv: Float) = studio.edit { it.mapEffect(id, fx.id) { e -> e.copy(params = spec.params.indices.map { k -> if (k == i) nv else e.params.getOrElse(k) { spec.params[k].default } }) } }
+                                fun set(nv: Float) = setParam(i, nv)
                                 if (ps.choices.isNotEmpty()) {
                                     Row(Modifier.height(44.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Txt(ps.name, Modifier.width(92.dp), type.label, pal.dim)
                                         Segmented(ps.choices, v.toInt(), { set(it.toFloat()) }, Modifier.weight(1f))
                                     }
                                 } else {
-                                    SliderRow(ps.name, paramText(ps, v), ps.toNormalized(v), { set(ps.fromNormalized(it)) }, onStart = studio::beginGesture, onEnd = studio::endGesture)
+                                    SliderRow(ps.name, paramText(ps, v), ps.toNormalized(v), { set(ps.fromNormalized(it)) }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = ps.toNormalized(ps.default))
                                 }
                             }
                         }

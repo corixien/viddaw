@@ -36,6 +36,20 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
   `MidiInput.kt`, `VideoSupport.kt`.
 - Projects live in `<filesDir>/projects/<id>/project.json` with `audio/*.wav` beside it.
 
+## Latest batch (2026-11-18, built and installed, NOT tested on the device)
+- Mixer: swipe starting on header buttons works (header watches the initial pointer pass; buttons cancel once it consumes). Tapping a header opens track settings directly; move up/down buttons removed.
+- Phone landscape (shorter side < 600 dp): transport is a column right of the picture (`TransportColumn` in `ui/Studio.kt`); tablets keep the bar.
+- Video: preview hides at once between clips (graphicsLayer alpha 0, was the "last frame again" bug). `Project.frame` picks the picture format (Auto/16:9/9:16/1:1/4:3, Tempo sheet); export uses it (`exportVideo(..., aspect, ...)`). Cause of the landscape-after-portrait problem: aspect came from the first clip only.
+- Preview editing: snapping to centre and other objects (guides), rotation snaps every 45 deg, grid toggle (`StudioState.showGrid`), Shapes icon for text/shape.
+- `StudioState.gridTicks()` follows the drawn grid lines at every zoom.
+- Clip toolbar: unfolded list is a popup under the bar with the bar's width; bar only moves up when the screen ends.
+- Clips are clipped to their rounded outline (fade lines, thumbnails).
+- Double tap on a slider resets it (`HSlider.reset`, centred sliders reset to the middle).
+- EQ: draggable five-band graph (`ui/EqEditor.kt`); new params 12-14 (Mid 3) appended; snapshot pads missing params with defaults.
+- Automation (`model/Automation.kt`): `Track.lanes`, targets vol, pan, `fx:<id>:<param>`, video `v:<field>` (no blur). Engine record `A` (see `engine.h`), lane overrides the fixed setting, evaluated per block at the block start. Video lanes are laid over `VideoFx` through `withAuto` for preview and export. UI: Spline button in the top bar shows lanes under tracks (`StudioState.showAuto`, `rows()` in `ui/Timeline.kt` gives variable row heights); tap lane = add point, drag point = move, double tap point = delete; "+ Automation" row under the selected track. Track reordering by long press is off while lanes are shown.
+- Faders: `faderToDb`/`dbToFader` moved to `model/Automation.kt`.
+- Not verified: everything above on the device; the mixer strips do not show lane-driven values.
+
 ## Current state (2026-11-15)
 Version 0.2.0 in the tree and installed on the phone as a debug build; the published release is still 0.1.0.
 
@@ -98,7 +112,7 @@ Release:
 - 0.2.0 is not published; the user has not tried it yet.
 
 ## Known gaps and next steps
-1. User feedback on 0.2.0, the unverified points above, new README screenshots, then a 0.2.0 release.
+1. Device test of the 2026-11-18 batch, user feedback on 0.2.0, the unverified points above, new README screenshots, then a 0.2.0 release.
 2. Video: clips never show at the same time, so there is no cross-dissolve and no picture-in-picture;
    transitions run against black. Needs a second decoder in the preview and a multi-sequence export.
 3. Video clips have no speed control; time-stretch is offered for audio and MIDI only.

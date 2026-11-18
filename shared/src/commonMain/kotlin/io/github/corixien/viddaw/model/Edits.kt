@@ -189,7 +189,9 @@ fun Project.mapEffect(trackId: Long, effectId: Long, f: (EffectInstance) -> Effe
     mapTrack(trackId) { t -> t.copy(effects = t.effects.map { if (it.id == effectId) f(it) else it }) }
 
 fun Project.removeEffect(trackId: Long, effectId: Long): Project =
-    mapTrack(trackId) { t -> t.copy(effects = t.effects.filter { it.id != effectId }) }
+    mapTrack(trackId) { t ->
+        t.copy(effects = t.effects.filter { it.id != effectId }, lanes = t.lanes.filter { !it.target.startsWith("fx:$effectId:") })
+    }
 
 fun Project.moveEffect(trackId: Long, effectId: Long, delta: Int): Project = mapTrack(trackId) { t ->
     val from = t.effects.indexOfFirst { it.id == effectId }

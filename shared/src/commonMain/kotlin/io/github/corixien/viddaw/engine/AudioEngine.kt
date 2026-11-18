@@ -1,5 +1,6 @@
 package io.github.corixien.viddaw.engine
 
+import io.github.corixien.viddaw.model.laneValue
 import io.github.corixien.viddaw.model.FIRST_PAD_NOTE
 import io.github.corixien.viddaw.model.Project
 import io.github.corixien.viddaw.model.TrackType
@@ -87,8 +88,24 @@ fun engineSnapshot(p: Project, projectDir: String): String = buildString {
             }
         }
         for (e in t.effects) {
-            append("E ${e.id} ${e.type} ${bit(e.enabled)} ${e.params.size}")
-            e.params.forEach { append(' ').append(it) }
+            // Projects saved before an effect gained parameters carry fewer values; the rest start at their defaults.
+            val params = io.github.corixien.viddaw.model.effectSpec(e.type)?.let { s -> s.params.indices.map { e.params.getOrElse(it) { s.params[it].default } } } ?: e.params
+            append("E ${e.id} ${e.type} ${bit(e.enabled)} ${params.size}")
+            params.forEach { append(' ').append(it) }
+            append('\n')
+        }
+        // Automation after the effects, so the engine can find the effect a lane drives.
+        for (lane in t.lanes) {
+            if (lane.points.isEmpty() || t.type == TrackType.Video) continue
+            val head = when {
+                lane.target == "vol" -> "0 0 0"
+                lane.target == "pan" -> "1 0 0"
+                lane.target.startsWith("fx:") -> lane.target.removePrefix("fx:").split(':').let { "2 ${it[0]} ${it[1]}" }
+                else -> continue
+            }
+            if (t.laneValue(lane.target, 0f) == null) continue
+            append("A $head ${lane.points.size}")
+            for (pt in lane.points) append(' ').append(frames(pt.tick)).append(' ').append(t.laneValue(lane.target, pt.value))
             append('\n')
         }
     }

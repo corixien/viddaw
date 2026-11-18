@@ -76,7 +76,7 @@ static void testEffects() {
     };
     // Default parameters, mirrored from the Kotlin EffectSpecs.
     const std::vector<Case> cases = {
-        {"eq", {20, 3, 120, -4, 500, 1, 2, 3000, 1, 4, 8000, 20000}},
+        {"eq", {20, 3, 120, -4, 500, 1, 2, 3000, 1, 4, 8000, 20000, 1, 1500, 1}},
         {"comp", {-18, 4, 10, 120, 6, 0, 100}},
         {"limiter", {-1, 100, 6}},
         {"gate", {-45, 1, 50, 150, -80}},

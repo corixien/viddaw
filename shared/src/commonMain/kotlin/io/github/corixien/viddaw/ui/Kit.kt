@@ -200,7 +200,10 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
     }
 }
 
-/** Horizontal slider over 0..1. [onStart]/[onEnd] bracket a drag so it becomes one undo step. */
+/**
+ * Horizontal slider over 0..1. [onStart]/[onEnd] bracket a drag so it becomes one undo step.
+ * A double tap jumps to [reset]: the middle for centred sliders, nothing unless given otherwise.
+ */
 @Composable
 fun HSlider(
     value: Float,
@@ -210,26 +213,37 @@ fun HSlider(
     center: Boolean = false,
     onStart: () -> Unit = {},
     onEnd: () -> Unit = {},
+    reset: Float? = if (center) 0.5f else null,
 ) {
     val p = pal
     val fill = color ?: p.accent
     val change by rememberUpdatedState(onChange)
     val start by rememberUpdatedState(onStart)
     val end by rememberUpdatedState(onEnd)
+    val home by rememberUpdatedState(reset)
     Canvas(
         modifier.height(32.dp).pointerInput(Unit) {
+            var lastTap = 0L
             awaitEachGesture {
                 val down = awaitFirstDown()
                 val pad = 12.dp.toPx()
                 fun at(x: Float) = ((x - pad) / (size.width - 2 * pad)).coerceIn(0f, 1f)
+                val double = down.uptimeMillis - lastTap < 320
+                lastTap = 0
                 start()
-                change(at(down.position.x))
+                var moved = 0f
+                val target = home
+                if (double && target != null) change(target) else change(at(down.position.x))
                 while (true) {
                     val e = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                     if (!e.pressed) break
-                    if (e.positionChange() != Offset.Zero) change(at(e.position.x))
+                    if (e.positionChange() != Offset.Zero) {
+                        moved += e.positionChange().getDistance()
+                        if (!(double && target != null)) change(at(e.position.x))
+                    }
                     e.consume()
                 }
+                if (moved < viewConfiguration.touchSlop) lastTap = down.uptimeMillis
                 end()
             }
         },
@@ -259,10 +273,11 @@ fun SliderRow(
     center: Boolean = false,
     onStart: () -> Unit = {},
     onEnd: () -> Unit = {},
+    reset: Float? = if (center) 0.5f else null,
 ) {
     Row(modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
         if (label.isNotEmpty()) Txt(label, Modifier.width(92.dp), type.label, pal.dim)
-        HSlider(value, onChange, Modifier.weight(1f), color, center, onStart, onEnd)
+        HSlider(value, onChange, Modifier.weight(1f), color, center, onStart, onEnd, reset)
         Txt(valueText, Modifier.width(72.dp), type.label.copy(fontFeatureSettings = "tnum"), align = TextAlign.End)
     }
 }

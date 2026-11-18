@@ -43,6 +43,7 @@ val EFFECT_SPECS: List<EffectSpec> = listOf(
             db("Mid 2 gain", -18f, 18f, 0f), hz("Mid 2 freq", 500f, 12000f, 3000f), ParamSpec("Mid 2 Q", 0.3f, 8f, 1f, log = true),
             db("High gain", -18f, 18f, 0f), hz("High freq", 2000f, 16000f, 8000f),
             hz("High cut", 1000f, 20000f, 20000f),
+            db("Mid 3 gain", -18f, 18f, 0f), hz("Mid 3 freq", 200f, 8000f, 1500f), ParamSpec("Mid 3 Q", 0.3f, 8f, 1f, log = true),
         ),
     ),
     EffectSpec(

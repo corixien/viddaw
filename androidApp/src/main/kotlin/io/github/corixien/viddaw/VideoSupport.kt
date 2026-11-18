@@ -66,6 +66,7 @@ import io.github.corixien.viddaw.model.VideoFx
 import io.github.corixien.viddaw.model.colorMatrix
 import io.github.corixien.viddaw.model.hasColor
 import io.github.corixien.viddaw.model.transitionAt
+import io.github.corixien.viddaw.model.withAuto
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CompletableDeferred
@@ -124,9 +125,10 @@ class VideoSupport(private val context: Context) {
                         player.setMediaItem(MediaItem.fromUri(seg.uri))
                         player.prepare()
                     }
-                    if (graded != seg.fx) {
-                        graded = seg.fx
-                        view[0]?.let { grade(it, seg.fx) }
+                    val look = seg.fx.withAuto(seg.autos, t)
+                    if (graded != look) {
+                        graded = look
+                        view[0]?.let { grade(it, look) }
                     }
                     val want = ((t - seg.startSec + seg.sourceOffsetSec) * 1000).toLong()
                     val drift = abs(player.currentPosition - want)
@@ -202,14 +204,19 @@ class VideoSupport(private val context: Context) {
 
     /** The clip's placement, transitions, blur and colour as export effects, in the order the preview applies them. */
     private fun clipEffects(s: VideoSegment, width: Int, height: Int): List<Effect> {
-        val fx = s.fx
         val effects = ArrayList<Effect>()
+        val base = s.fx
+        val fx = base
         effects += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
         val clock = Clock()
-        val animated = fx.transIn != 0 || fx.transOut != 0
-        if (animated || fx.scale != 1f || fx.x != 0f || fx.y != 0f || fx.rotation != 0f || fx.flip) {
+        val animated = base.transIn != 0 || base.transOut != 0
+        val automated = s.autos.isNotEmpty()
+        // The look at one moment of the clip: its settings with the lanes of its track laid over them.
+        fun lookAt(rel: Double) = if (automated) base.withAuto(s.autos, s.startSec + rel) else base
+        if (automated || animated || fx.scale != 1f || fx.x != 0f || fx.y != 0f || fx.rotation != 0f || fx.flip) {
             val aspect = width.toFloat() / height
             effects += MatrixTransformation { pts ->
+                val fx = lookAt(clock.seconds(pts))
                 val tr = fx.transitionAt(clock.seconds(pts), s.durationSec)
                 val k = fx.scale * tr.scale
                 // Frame coordinates run -1..1 with y up; rotate in square pixels, then move.
@@ -223,9 +230,10 @@ class VideoSupport(private val context: Context) {
             }
         }
         if (fx.blur > 0f) effects += GaussianBlur(fx.blur * BLUR_SHARE * height)
-        if (animated || fx.hasColor) {
+        if (automated || animated || fx.hasColor) {
             effects += RgbMatrix { pts, _ ->
-                val m = fx.colorMatrix(fx.transitionAt(clock.seconds(pts), s.durationSec).fade)
+                val look = lookAt(clock.seconds(pts))
+                val m = look.colorMatrix(look.transitionAt(clock.seconds(pts), s.durationSec).fade)
                 floatArrayOf(
                     m[0], m[4], m[8], 0f,
                     m[1], m[5], m[9], 0f,
@@ -300,9 +308,14 @@ class VideoSupport(private val context: Context) {
     /**
      * Renders the video clips, with black where the timeline has none, over the bounced soundtrack.
      */
-    suspend fun export(segments: List<VideoSegment>, overlays: List<OverlaySegment>, wavPath: String, totalSec: Double, out: File, onProgress: (Float) -> Unit): Boolean {
+    suspend fun export(segments: List<VideoSegment>, overlays: List<OverlaySegment>, wavPath: String, totalSec: Double, aspect: Float, out: File, onProgress: (Float) -> Unit): Boolean {
         if (segments.isEmpty()) return false
-        val (width, height) = withContext(Dispatchers.IO) { outputSize(segments.first().uri) }
+        val (width, height) = if (aspect > 0f) {
+            // A chosen picture shape: the long side is 1920, both sides even.
+            val w = if (aspect >= 1f) 1920 else (1920 * aspect).toInt() / 2 * 2
+            val h = if (aspect >= 1f) (1920 / aspect).toInt() / 2 * 2 else 1920
+            w to h
+        } else withContext(Dispatchers.IO) { outputSize(segments.first().uri) }
         return withContext(Dispatchers.Main) {
             val video = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)).apply {
                 var cursor = 0.0

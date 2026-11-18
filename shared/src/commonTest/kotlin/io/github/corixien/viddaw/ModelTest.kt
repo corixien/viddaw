@@ -1,5 +1,7 @@
 package io.github.corixien.viddaw
 
+import io.github.corixien.viddaw.model.dbToFader
+import io.github.corixien.viddaw.model.faderToDb
 import io.github.corixien.viddaw.app.AppJson
 import io.github.corixien.viddaw.engine.engineSnapshot
 import io.github.corixien.viddaw.model.Clip
@@ -24,8 +26,6 @@ import io.github.corixien.viddaw.model.ticksToFrames
 import io.github.corixien.viddaw.model.trackOfClip
 import io.github.corixien.viddaw.model.trimClipEnd
 import io.github.corixien.viddaw.model.trimClipStart
-import io.github.corixien.viddaw.ui.dbToFader
-import io.github.corixien.viddaw.ui.faderToDb
 import io.github.corixien.viddaw.ui.fmt
 import kotlin.math.abs
 import io.github.corixien.viddaw.model.*

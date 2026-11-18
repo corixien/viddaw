@@ -1,5 +1,6 @@
 package io.github.corixien.viddaw.ui
 
+import io.github.corixien.viddaw.model.AutoTarget
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationState
@@ -10,6 +11,9 @@ import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -44,11 +48,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -74,7 +80,18 @@ import io.github.corixien.viddaw.app.Spot
 import io.github.corixien.viddaw.app.StudioState
 import io.github.corixien.viddaw.app.Tool
 import io.github.corixien.viddaw.engine.PEAK_FRAMES
+import io.github.corixien.viddaw.model.AutoPoint
 import io.github.corixien.viddaw.model.Clip
+import io.github.corixien.viddaw.model.Lane
+import io.github.corixien.viddaw.model.hasTarget
+import io.github.corixien.viddaw.model.mapLane
+import io.github.corixien.viddaw.model.removeLane
+import io.github.corixien.viddaw.model.valueAt
+import io.github.corixien.viddaw.model.autoTargets
+import io.github.corixien.viddaw.model.laneRest
+import io.github.corixien.viddaw.model.dbToFader
+import io.github.corixien.viddaw.model.faderToDb
+import io.github.corixien.viddaw.model.track
 import io.github.corixien.viddaw.model.PPQ
 import io.github.corixien.viddaw.model.SAMPLE_RATE
 import io.github.corixien.viddaw.model.Track
@@ -104,6 +121,7 @@ import kotlin.time.TimeSource
 private val HeaderWidth = 118.dp
 val RulerHeight = 30.dp
 val TrackHeight = 68.dp
+val LaneHeight = 52.dp
 
 fun trackIcon(type: TrackType) = when (type) {
     TrackType.Audio -> Lucide.Mic
@@ -111,6 +129,36 @@ fun trackIcon(type: TrackType) = when (type) {
     TrackType.Drums -> Lucide.Drum
     TrackType.Video -> Lucide.Film
 }
+
+/** One horizontal band of the arrangement: a track, one of its automation lanes, or the row that adds a lane. Pixels exclude the ruler. */
+class RowInfo(val track: Track, val index: Int, val lane: Lane?, val add: Boolean, val top: Float, val height: Float) {
+    val isTrack get() = lane == null && !add
+}
+
+/** All bands top to bottom. Each is followed by its hairline, so heights include one pixel for it. */
+fun StudioState.rows(density: Float): List<RowInfo> {
+    val trackPx = TrackHeight.value * density + density
+    val lanePx = LaneHeight.value * density + density
+    val out = ArrayList<RowInfo>()
+    var y = 0f
+    project.tracks.forEachIndexed { i, t ->
+        out += RowInfo(t, i, null, false, y, trackPx)
+        y += trackPx
+        if (showAuto) {
+            for (l in t.lanes) if (t.hasTarget(l)) {
+                out += RowInfo(t, i, l, false, y, lanePx)
+                y += lanePx
+            }
+            if (t.id == selectedTrack) {
+                out += RowInfo(t, i, null, true, y, lanePx)
+                y += lanePx
+            }
+        }
+    }
+    return out
+}
+
+fun List<RowInfo>.at(y: Float): RowInfo? = firstOrNull { y >= it.top && y < it.top + it.height }
 
 /** Beats from the project start to the playhead, with frame precision. */
 private fun StudioState.positionBeats(): Double = positionFrames * project.bpm / (60.0 * SAMPLE_RATE)
@@ -209,9 +257,12 @@ private fun HeaderColumn(
                 Modifier.weight(1f).fillMaxWidth().clipToBounds().pointerInput(studio) {
                     val longMs = viewConfiguration.longPressTimeoutMillis
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        val row = floor((down.position.y + vScroll.value) / trackPx).toInt()
-                        val track = studio.project.tracks.getOrNull(row)
+                        // Watch in the initial pass so a swipe that starts on a button still reaches the mixer; the buttons give up once it is consumed.
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val info = studio.rows(density).at(down.position.y + vScroll.value)
+                        val row = info?.index ?: -1
+                        // Reordering needs equal rows, so it is off while lanes are shown.
+                        val track = info?.takeIf { it.isTrack && !studio.showAuto }?.track
                         val began = TimeSource.Monotonic.markNow()
                         val velocity = VelocityTracker()
                         var total = Offset.Zero
@@ -222,8 +273,8 @@ private fun HeaderColumn(
                             while (true) {
                                 val event = if (mode == 0 && track != null) {
                                     val left = longMs - began.elapsedNow().inWholeMilliseconds
-                                    if (left <= 0) null else withTimeoutOrNull(left) { awaitPointerEvent() }
-                                } else awaitPointerEvent()
+                                    if (left <= 0) null else withTimeoutOrNull(left) { awaitPointerEvent(PointerEventPass.Initial) }
+                                } else awaitPointerEvent(PointerEventPass.Initial)
                                 if (event == null) {
                                     mode = 3
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -235,9 +286,7 @@ private fun HeaderColumn(
                                 }
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (!change.pressed) {
-                                    if (mode == 0 && !change.isConsumed && track != null) {
-                                        if (studio.selectedTrack == track.id) studio.panel = Panel.TrackSettings(track.id) else studio.selectTrack(track.id)
-                                    }
+                                    if (mode != 0) change.consume()  // a finished long press or swipe is not a tap
                                     break
                                 }
                                 val x = change.position.x + left()
@@ -266,7 +315,17 @@ private fun HeaderColumn(
                 },
             ) {
                 Column(Modifier.verticalScroll(vScroll, enabled = false)) {
-                    studio.project.tracks.forEachIndexed { i, t ->
+                    for (info in studio.rows(density)) {
+                        val t = info.track
+                        val i = info.index
+                        if (info.lane != null) {
+                            LaneHeader(studio, t, info.lane)
+                            continue
+                        }
+                        if (info.add) {
+                            AddLaneHeader(studio, t)
+                            continue
+                        }
                         val dragging = dragTrack == t.id
                         // Rows between the grabbed one and its drop place step aside.
                         val aside = when {
@@ -305,7 +364,10 @@ private fun TrackHeader(studio: StudioState, track: Track, index: Int, lifted: B
     val selected = studio.selectedTrack == track.id
     val bg by animateColorAsState(if (lifted) pal.raised else if (selected) pal.surface else pal.window)
     Column {
-        Row(Modifier.fillMaxWidth().height(TrackHeight).background(bg)) {
+        Row(
+            Modifier.fillMaxWidth().height(TrackHeight).background(bg)
+                .clickable(remember { MutableInteractionSource() }, null) { studio.selectTrack(track.id); studio.panel = Panel.TrackSettings(track.id) },
+        ) {
             Box(Modifier.width(4.dp).fillMaxHeight().background(trackColor(track.color)))
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 8.dp), Arrangement.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -324,6 +386,56 @@ private fun TrackHeader(studio: StudioState, track: Track, index: Int, lifted: B
     }
 }
 
+@Composable
+fun AutoTarget.title(): String {
+    val lang = LocalLang.current
+    val own = when (id) {
+        "vol" -> T.volume
+        "pan" -> T.pan
+        "v:x" -> T.posX
+        "v:y" -> T.posY
+        "v:scale" -> T.scale
+        "v:rotation" -> T.rotation
+        "v:opacity" -> T.opacity
+        "v:brightness" -> T.brightness
+        "v:contrast" -> T.contrast
+        "v:saturation" -> T.saturation
+        "v:temperature" -> T.temperature
+        "v:hue" -> T.hue
+        else -> null
+    }
+    return own?.of(lang) ?: "$group · $label"
+}
+
+/** Left cell of an automation lane: what it drives and a button to remove it. */
+@Composable
+private fun LaneHeader(studio: StudioState, track: Track, lane: Lane) {
+    val target = track.autoTargets().firstOrNull { it.id == lane.target } ?: return
+    Column {
+        Row(Modifier.fillMaxWidth().height(LaneHeight).background(pal.window), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(4.dp).fillMaxHeight().background(trackColor(track.color).copy(alpha = 0.5f)))
+            Icon(Lucide.Spline, pal.dim, 13.dp, Modifier.padding(start = 8.dp))
+            Txt(target.title(), Modifier.weight(1f).padding(horizontal = 6.dp), type.small, pal.dim)
+            IconBtn(Lucide.X, { studio.edit { it.removeLane(track.id, lane.id) } }, size = 30.dp, tint = pal.dim)
+        }
+        Hairline()
+    }
+}
+
+@Composable
+private fun AddLaneHeader(studio: StudioState, track: Track) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().height(LaneHeight).pressable { studio.panel = Panel.AddLane(track.id) }.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(Lucide.Plus, pal.dim, 14.dp)
+            Txt(T.automation.t, style = type.small, color = pal.dim)
+        }
+        Hairline()
+    }
+}
+
 /** The mixer laid on its side: one strip per track row, the master below them. */
 @Composable
 private fun MixerPanel(studio: StudioState, vScroll: ScrollState, modifier: Modifier) {
@@ -335,14 +447,21 @@ private fun MixerPanel(studio: StudioState, vScroll: ScrollState, modifier: Modi
         }
         Hairline()
         Column(Modifier.weight(1f).verticalScroll(vScroll)) {
-            for (t in studio.project.tracks) {
+            val density = LocalDensity.current.density
+            for (info in studio.rows(density)) {
+                val t = info.track
+                if (!info.isTrack) {
+                    // Lane rows have no strip; keep the height so the strips stay level with their tracks.
+                    Spacer(Modifier.height(with(LocalDensity.current) { info.height.toDp() }))
+                    continue
+                }
                 Row(Modifier.fillMaxWidth().height(TrackHeight).padding(start = 10.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Lucide.Volume2, pal.dim, 14.dp)
                             HSlider(
                                 dbToFader(t.volumeDb), { v -> studio.edit { p -> p.mapTrack(t.id) { it.copy(volumeDb = faderToDb(v)) } } },
-                                Modifier.weight(1f), color = trackColor(t.color), onStart = studio::beginGesture, onEnd = studio::endGesture,
+                                Modifier.weight(1f), color = trackColor(t.color), onStart = studio::beginGesture, onEnd = studio::endGesture, reset = dbToFader(0f),
                             )
                             Txt(fmtDb(t.volumeDb), Modifier.width(56.dp), tnum, pal.dim, align = TextAlign.End)
                         }
@@ -366,7 +485,7 @@ private fun MixerPanel(studio: StudioState, vScroll: ScrollState, modifier: Modi
                 Column(Modifier.weight(1f)) {
                     HSlider(
                         dbToFader(studio.project.masterDb), { v -> studio.edit { it.copy(masterDb = faderToDb(v)) } },
-                        Modifier.fillMaxWidth(), onStart = studio::beginGesture, onEnd = studio::endGesture,
+                        Modifier.fillMaxWidth(), onStart = studio::beginGesture, onEnd = studio::endGesture, reset = dbToFader(0f),
                     )
                     for (m in 0..1) {
                         MeterBar({ studio.meterTick; studio.levels[m] }, Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(4.dp), vertical = false)
@@ -384,6 +503,8 @@ private sealed interface Hit {
     data object LoopStart : Hit
     data object LoopEnd : Hit
     data class Empty(val track: Track?) : Hit
+    data class OnLane(val row: RowInfo) : Hit
+    data class AddLane(val track: Track) : Hit
     data class OnClip(val clip: Clip, val track: Track, val part: Int) : Hit  // part: 0 body, -1 left edge, 1 right edge
 }
 
@@ -401,7 +522,7 @@ fun clipBounds(studio: StudioState, clipId: Long, width: Float, density: Float, 
     val clip = project.tracks[row].clips.first { it.id == clipId }
     val ppt = studio.ppt(density)
     val x = ((clip.start - studio.leftTick(width, density)) * ppt).toFloat()
-    val top = RulerHeight.value * density + row * (TrackHeight.value * density + density) - scrollY
+    val top = RulerHeight.value * density + studio.rows(density).first { it.index == row && it.isTrack }.top - scrollY
     return Rect(x, top, x + (clip.lengthTicks(project.bpm) * ppt).toFloat(), top + TrackHeight.value * density)
 }
 
@@ -410,7 +531,7 @@ fun spotOffset(studio: StudioState, spot: Spot, width: Float, density: Float, sc
     val row = studio.project.tracks.indexOfFirst { it.id == spot.trackId }
     if (row < 0) return null
     val x = ((spot.tick - studio.leftTick(width, density)) * studio.ppt(density)).toFloat()
-    return Offset(x, RulerHeight.value * density + row * (TrackHeight.value * density + density) - scrollY)
+    return Offset(x, RulerHeight.value * density + studio.rows(density).first { it.index == row && it.isTrack }.top - scrollY)
 }
 
 @Composable
@@ -447,7 +568,10 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
             }
             return Hit.Ruler
         }
-        val track = project.tracks.getOrNull(floor((pos.y - rulerPx + vScroll.value) / trackPx).toInt()) ?: return Hit.Empty(null)
+        val info = studio.rows(density).at(pos.y - rulerPx + vScroll.value) ?: return Hit.Empty(null)
+        if (info.add) return Hit.AddLane(info.track)
+        if (info.lane != null) return Hit.OnLane(info)
+        val track = info.track
         if (tick < 0) return Hit.Empty(track)
         val clip = track.clips.lastOrNull { tick >= it.start && tick < it.start + it.lengthTicks(project.bpm) } ?: return Hit.Empty(track)
         // Only a clip selected on its own shows edge handles.
@@ -480,6 +604,19 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                     val grabTick = leftTick + down.position.x / ppt()
                     var moveIds = emptySet<Long>()
                     val canHold = target is Hit.OnClip || (target is Hit.Empty && target.track != null && grabTick >= 0)
+                    // A press on a lane point grabs it; elsewhere in a lane the drag scrolls like on a track.
+                    val laneRow = (target as? Hit.OnLane)?.row
+                    fun laneTop() = laneRow?.let { rulerPx + it.top - vScroll.value } ?: 0f
+                    fun laneValue(y: Float): Float {
+                        val r = laneRow ?: return 0f
+                        val pad = 8 * density
+                        return (1f - (y - laneTop() - pad) / (r.height - density - 2 * pad)).coerceIn(0f, 1f)
+                    }
+                    val pointIdx = laneRow?.lane?.points?.withIndex()?.minByOrNull { (_, pt) ->
+                        (Offset(((pt.tick - leftTick) * ppt()).toFloat(), laneTop() + 8 * density + (laneRow.height - density - 16 * density) * (1f - pt.value)) - down.position).getDistance()
+                    }?.takeIf { (_, pt) ->
+                        (Offset(((pt.tick - leftTick) * ppt()).toFloat(), laneTop() + 8 * density + (laneRow.height - density - 16 * density) * (1f - pt.value)) - down.position).getDistance() < 28 * density
+                    }?.index ?: -1
 
                     try {
                         while (true) {
@@ -503,7 +640,7 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) break
                             if (pressed.size >= 2) {
-                                if (mode == 2 || mode == 3) studio.endGesture()
+                                if (mode == 2 || mode == 3 || mode == 4) studio.endGesture()
                                 mode = 5
                                 // The playhead is the fixed point of the view, so zooming never moves it.
                                 studio.beatWidth = (studio.beatWidth * event.calculateZoom()).coerceIn(5f, 260f)
@@ -519,9 +656,10 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                 mode = when (target) {
                                     is Hit.OnClip -> if (target.clip.id in studio.selection) 2 else 1
                                     Hit.LoopStart, Hit.LoopEnd -> 3
+                                    is Hit.OnLane -> if (pointIdx >= 0) 4 else 1
                                     else -> 1
                                 }
-                                if (mode == 2 || mode == 3) studio.beginGesture()
+                                if (mode == 2 || mode == 3 || mode == 4) studio.beginGesture()
                                 if (mode == 2) moveIds = studio.targets()
                                 if (mode == 1) studio.spot = null
                             }
@@ -540,13 +678,24 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                         else -> {
                                             val wanted = snap(startClip.start + (tick - grabTick).toLong(), grid).coerceAtLeast(0)
                                             if (moveIds.size == 1) {
-                                                val row = floor((change.position.y - rulerPx + vScroll.value) / trackPx).toInt()
-                                                studio.edit { it.moveClip(startClip.id, wanted, studio.project.tracks.getOrNull(row)?.id) }
+                                                val row = studio.rows(density).at(change.position.y - rulerPx + vScroll.value)?.index
+                                                studio.edit { it.moveClip(startClip.id, wanted, row?.let { r -> studio.project.tracks.getOrNull(r)?.id }) }
                                             } else {
                                                 val now = studio.project.startOf(startClip.id)
                                                 if (now != null) studio.edit { it.moveClips(moveIds, wanted - now) }
                                             }
                                         }
+                                    }
+                                }
+                                4 -> if (laneRow?.lane != null) {
+                                    val lane = laneRow.lane
+                                    val points = studio.project.track(laneRow.track.id)?.lanes?.firstOrNull { it.id == lane.id }?.points.orEmpty()
+                                    if (pointIdx in points.indices) {
+                                        val low = points.getOrNull(pointIdx - 1)?.let { it.tick + 1 } ?: 0L
+                                        val high = points.getOrNull(pointIdx + 1)?.let { it.tick - 1 } ?: Long.MAX_VALUE
+                                        val at = snap(tick.toLong(), grid).coerceIn(low, maxOf(low, high))
+                                        val value = laneValue(change.position.y)
+                                        studio.edit { p -> p.mapLane(laneRow.track.id, lane.id) { l -> l.copy(points = l.points.mapIndexed { i, pt -> if (i == pointIdx) AutoPoint(at, value) else pt }) } }
                                     }
                                 }
                                 3 -> {
@@ -560,7 +709,7 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                             if (mode != 0) change.consume()
                         }
                     } finally {
-                        if (mode == 2 || mode == 3) studio.endGesture()
+                        if (mode == 2 || mode == 3 || mode == 4) studio.endGesture()
                     }
 
                     if (mode == 1) {
@@ -587,6 +736,21 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                 if (double && target.clip.isMidi) studio.panel = Panel.NoteEditor(target.clip.id)
                                 if (double && target.clip.overlay != null) studio.panel = Panel.ClipTool(Tool.Text)
                             }
+                            is Hit.AddLane -> studio.panel = Panel.AddLane(target.track.id)
+                            is Hit.OnLane -> {
+                                studio.selectClip(null)
+                                studio.selectedTrack = target.row.track.id
+                                val lane = target.row.lane
+                                if (lane != null) {
+                                    if (pointIdx >= 0) {
+                                        if (double) studio.edit { p -> p.mapLane(target.row.track.id, lane.id) { l -> l.copy(points = l.points.filterIndexed { i, _ -> i != pointIdx }) } }
+                                    } else if (grabTick >= 0) {
+                                        val at = snap(grabTick.toLong(), studio.gridTicks()).coerceAtLeast(0)
+                                        val point = AutoPoint(at, laneValue(down.position.y))
+                                        studio.edit { p -> p.mapLane(target.row.track.id, lane.id) { l -> l.copy(points = (l.points.filter { it.tick != at } + point).sortedBy { it.tick }) } }
+                                    }
+                                }
+                            }
                             is Hit.Empty -> {
                                 studio.selectClip(null)
                                 target.track?.let { t ->
@@ -609,10 +773,14 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                 val x0 = max(x(0), 0f)
 
                 // Rows
-                project.tracks.forEachIndexed { i, t ->
-                    val y = rulerPx + i * trackPx - scrollY
-                    if (t.id == studio.selectedTrack) drawRect(p.surface.copy(alpha = if (p.dark) 0.35f else 0.55f), Offset(0f, y), Size(w, trackPx))
-                    drawLine(p.line, Offset(0f, y + trackPx), Offset(w, y + trackPx), density)
+                val rows = studio.rows(density)
+                val topOf = rows.filter { it.isTrack }.associate { it.index to it.top }
+                for (r in rows) {
+                    val y = rulerPx + r.top - scrollY
+                    if (y > h || y + r.height < rulerPx) continue
+                    if (r.isTrack && r.track.id == studio.selectedTrack) drawRect(p.surface.copy(alpha = if (p.dark) 0.35f else 0.55f), Offset(0f, y), Size(w, r.height))
+                    if (!r.isTrack) drawRect(p.window.copy(alpha = 0.55f), Offset(0f, y), Size(w, r.height))
+                    drawLine(p.line, Offset(0f, y + r.height), Offset(w, y + r.height), density)
                 }
 
                 // Grid: bars always, beats once they are wide enough to read
@@ -637,7 +805,7 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
 
                 // Clips
                 project.tracks.forEachIndexed { i, t ->
-                    val top = rulerPx + i * trackPx - scrollY + 3 * density
+                    val top = rulerPx + (topOf[i] ?: 0f) - scrollY + 3 * density
                     val height = trackPx - 7 * density
                     if (top > h || top + height < rulerPx) return@forEachIndexed
                     for (c in t.clips) {
@@ -671,9 +839,17 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                     val row = project.tracks.indexOfFirst { it.id == s.trackId }
                     if (row >= 0) {
                         val sx = x(s.tick)
-                        val top = rulerPx + row * trackPx - scrollY
+                        val top = rulerPx + (topOf[row] ?: 0f) - scrollY
                         drawLine(p.accent, Offset(sx, top + 4 * density), Offset(sx, top + trackPx - 5 * density), 2 * density)
                     }
+                }
+
+                // Automation lanes, over the grid and under the ruler
+                for (r in rows) {
+                    val lane = r.lane ?: continue
+                    val y = rulerPx + r.top - scrollY
+                    if (y > h || y + r.height < rulerPx) continue
+                    drawLane(r, lane, y, w, { tick -> x(tick) }, studio.positionTick, trackColor(r.track.color), p.text, density)
                 }
 
                 // Ruler
@@ -711,6 +887,34 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
     )
 }
 
+/** One lane: its curve across the whole width, a dot per point and a ring where the playhead reads it. */
+private fun DrawScope.drawLane(
+    row: RowInfo, lane: Lane, top: Float, width: Float, xOf: (Long) -> Float, now: Long, color: Color, ink: Color, density: Float,
+) {
+    val pad = 8 * density
+    val span = row.height - density - 2 * pad
+    fun y(v: Float) = top + pad + span * (1f - v)
+    val pts = lane.points
+    if (pts.isEmpty()) {
+        val rest = y(row.track.laneRest(lane.target))
+        drawLine(color.copy(alpha = 0.45f), Offset(0f, rest), Offset(width, rest), 1.5f * density)
+        return
+    }
+    val curve = Path().apply {
+        moveTo(0f, y(pts.first().value))
+        for (pt in pts) lineTo(xOf(pt.tick), y(pt.value))
+        lineTo(width, y(pts.last().value))
+    }
+    drawPath(curve, color, style = Stroke(2 * density))
+    for (pt in pts) {
+        val c = Offset(xOf(pt.tick), y(pt.value))
+        if (c.x < -10 * density || c.x > width + 10 * density) continue
+        drawCircle(color, 6 * density, c)
+        drawCircle(Color.White, 3 * density, c)
+    }
+    lane.valueAt(now.toDouble())?.let { drawCircle(ink, 4.5f * density, Offset(width / 2, y(it)), style = Stroke(1.5f * density)) }
+}
+
 /** Start tick of a clip as the project has it now. */
 private fun io.github.corixien.viddaw.model.Project.startOf(id: Long): Long? =
     tracks.firstNotNullOfOrNull { t -> t.clips.firstOrNull { it.id == id }?.start }
@@ -726,7 +930,8 @@ private fun DrawScope.drawClip(
     val right = min(x + w, size.width)
     val labelH = 15 * density
     val framesPerPx = 1.0 / (ppt * bpm * PPQ / (60.0 * SAMPLE_RATE))
-    clipRect(left, top, right, top + h) {
+    val outline = Path().apply { addRoundRect(RoundRect(x, top, x + w, top + h, r)) }
+    clipRect(left, top, right, top + h) { clipPath(outline) {
         val bodyTop = top + labelH
         val bodyH = h - labelH - 3 * density
         if (c.video != null) {
@@ -816,7 +1021,7 @@ private fun DrawScope.drawClip(
         if (c.group != 0L && w > 26 * density) {
             for (i in 0..1) drawCircle(Color.White, 2 * density, Offset(x + w - 8 * density - i * 6 * density, top + 9 * density))
         }
-    }
+    } }
     if (selected) {
         val ink = Color.White
         drawRoundRect(ink, Offset(x + density, top + density), Size(w - 2 * density, h - 2 * density), r, style = Stroke(2 * density))

@@ -12,6 +12,8 @@ import io.github.corixien.viddaw.engine.engineSnapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import io.github.corixien.viddaw.model.Clip
 import io.github.corixien.viddaw.model.Overlay
+import io.github.corixien.viddaw.model.VideoAuto
+import io.github.corixien.viddaw.model.laneValue
 import io.github.corixien.viddaw.model.clips
 import io.github.corixien.viddaw.model.duplicateClips
 import io.github.corixien.viddaw.model.groupClips
@@ -63,7 +65,11 @@ sealed interface Panel {
     data class Play(val trackId: Long) : Panel
     data class ClipTool(val tool: Tool) : Panel
     data object AddOverlay : Panel
+    data class AddLane(val trackId: Long) : Panel
 }
+
+/** Aspect ratios behind [Project.frame]; 0 follows the first video. */
+val FRAME_ASPECTS = listOf(0f, 16f / 9f, 9f / 16f, 1f, 4f / 3f)
 
 /** Editors for the selected clips that need more than one tap. */
 enum class Tool { Fade, Gain, Stretch, Pitch, Color, Look, Transform, Transition, Text }
@@ -133,9 +139,15 @@ class StudioState(
     /** Timeline view: width of one beat in dp. The playhead stays in the middle, so the position is the scroll. */
     var beatWidth by mutableFloatStateOf(36f)
     var snapOn by mutableStateOf(true)
+    var showGrid by mutableStateOf(false)
+    /** Automation lanes are drawn below their tracks. */
+    var showAuto by mutableStateOf(false)
 
     /** Width over height of the picture, taken from the first video that loads. */
     var videoAspect by mutableFloatStateOf(16f / 9f)
+
+    /** Width over height of the picture the project is cut in. */
+    val frameAspect: Float get() = FRAME_ASPECTS.getOrElse(project.frame) { 0f }.takeIf { it > 0f } ?: videoAspect
     val thumbs = mutableStateMapOf<String, Thumbs>()
     private val thumbsLoading = HashSet<String>()
 
@@ -245,12 +257,16 @@ class StudioState(
         return true
     }
 
-    /** Grid for moving and trimming, coarser when zoomed out. 0 when snapping is off. */
-    fun gridTicks(): Long = when {
-        !snapOn -> 0
-        beatWidth >= 90f -> PPQ / 4
-        beatWidth >= 28f -> PPQ
-        else -> project.ticksPerBar
+    /** Grid for moving and trimming: the finest line the timeline draws at this zoom. 0 when snapping is off. */
+    fun gridTicks(): Long {
+        if (!snapOn) return 0
+        if (beatWidth >= 90f) return PPQ / 4
+        if (beatWidth >= 14f) return PPQ
+        // Bar lines are drawn every bar while a bar is wide enough, else at the label spacing.
+        val barDp = beatWidth * project.beatsPerBar
+        var step = 1
+        if (barDp <= 20f) while (barDp * step < 56f) step *= 2
+        return project.ticksPerBar * step
     }
 
     fun addTrack(type: TrackType, name: String) {
@@ -679,13 +695,22 @@ class StudioState(
     /** Video clips of all video tracks in timeline order, trimmed so they never overlap. */
     fun videoSegments(): List<VideoSegment> {
         val bpm = project.bpm
-        val clips = project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { it.clips }.filter { it.video != null }.sortedBy { it.start }
-        return clips.mapIndexedNotNull { i, c ->
+        val entries = project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { t ->
+            val autos = t.lanes.mapNotNull { l ->
+                if (!l.target.startsWith("v:") || l.points.isEmpty()) return@mapNotNull null
+                VideoAuto(
+                    l.target.removePrefix("v:"), DoubleArray(l.points.size) { ticksToFrames(l.points[it].tick, bpm).toDouble() / SAMPLE_RATE },
+                    FloatArray(l.points.size) { t.laneValue(l.target, l.points[it].value) ?: 0f },
+                )
+            }
+            t.clips.filter { it.video != null }.map { it to autos }
+        }.sortedBy { it.first.start }
+        return entries.mapIndexedNotNull { i, (c, autos) ->
             val start = ticksToFrames(c.start, bpm)
-            val nextStart = clips.getOrNull(i + 1)?.let { ticksToFrames(it.start, bpm) } ?: Long.MAX_VALUE
+            val nextStart = entries.getOrNull(i + 1)?.let { ticksToFrames(it.first.start, bpm) } ?: Long.MAX_VALUE
             val frames = minOf(c.frames, nextStart - start)
             if (frames <= 0 || c.video == null) null
-            else VideoSegment(c.video, start.toDouble() / SAMPLE_RATE, c.offset.toDouble() / SAMPLE_RATE, frames.toDouble() / SAMPLE_RATE, c.fx, c.id)
+            else VideoSegment(c.video, start.toDouble() / SAMPLE_RATE, c.offset.toDouble() / SAMPLE_RATE, frames.toDouble() / SAMPLE_RATE, c.fx, c.id, autos)
         }
     }
 
@@ -724,7 +749,7 @@ class StudioState(
         poll.cancel()
         val where = when {
             !rendered -> null
-            format.video -> platform.exportVideo(videoSegments(), overlaySegments(), wav, end.toDouble() / SAMPLE_RATE, project.name) { progress = 0.3f + it * 0.7f }
+            format.video -> platform.exportVideo(videoSegments(), overlaySegments(), wav, end.toDouble() / SAMPLE_RATE, project.name, FRAME_ASPECTS.getOrElse(project.frame) { 0f }) { progress = 0.3f + it * 0.7f }
             else -> platform.exportAudio(wav, format, project.name)
         }
         platform.delete(wav)
