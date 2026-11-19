@@ -60,6 +60,10 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
 - Fonts: Lexend (variable font) is the app font and default text font; `OVERLAY_FONTS` (15 families, OFL) match `FONT_RES` in `AndroidPlatform.kt`. Overlay text uses each font's default weight in preview and export. Inter now only ships regular.
 - MP3 export: Shine (LGPL, `third_party/shine`) as separate `libshine.so`, JNI in `engine/android/mp3_jni.cpp`, `engine/Mp3.kt`, 256 kbps. The user approved the exception after a from-scratch encoder was judged too large; recorded in AGENTS.md. Not tested on the device.
 
+## Layer order and top insertion (2026-11-19)
+- The upper track is the upper layer (`trackIndex` on `VideoSegment`/`OverlaySegment`, sorted bottom to top in `overlaySegments()`). An overlay on a track below the playing video is hidden while that video plays (`OverlaySegment.coveredAt`), in preview and export alike; true partial coverage is not modelled.
+- Dragging clips above the first track inserts new tracks at the top (`moveClipsAcross`, pointer over the ruler counts as row -1).
+
 ## Current state (2026-11-15)
 Version 0.2.0 in the tree and installed on the phone as a debug build; the published release is still 0.1.0.
 

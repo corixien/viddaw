@@ -297,13 +297,13 @@ class VideoSupport(private val context: Context) {
     /** Shows its bitmap only while the overlay clip lasts, placed where the overlay is at that moment. */
     private class TimedOverlay(
         private val bitmap: Bitmap, private val startSec: Double, private val endSec: Double, private val clock: Clock,
-        private val base: Overlay, private val autos: List<VideoAuto>,
+        private val base: Overlay, private val autos: List<VideoAuto>, private val covered: (Double) -> Boolean,
     ) : BitmapOverlay() {
         private val hidden = StaticOverlaySettings.Builder().setAlphaScale(0f).build()
         override fun getBitmap(presentationTimeUs: Long): Bitmap = bitmap
         override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
             val t = clock.seconds(presentationTimeUs)
-            if (t < startSec || t >= endSec) return hidden
+            if (t < startSec || t >= endSec || covered(t)) return hidden
             val o = base.withAuto(autos, t)
             val k = if (base.size > 0f) o.size / base.size else 1f
             return StaticOverlaySettings.Builder()
@@ -366,7 +366,7 @@ class VideoSupport(private val context: Context) {
             frameEffects += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
             if (overlays.isNotEmpty()) {
                 val clock = Clock()
-                frameEffects += OverlayEffect(overlays.map { TimedOverlay(overlayBitmap(it.overlay.copy(x = 0f, y = 0f, rotation = 0f, opacity = 1f), width, height), it.startSec, it.startSec + it.durationSec, clock, it.overlay, it.autos) })
+                frameEffects += OverlayEffect(overlays.map { TimedOverlay(overlayBitmap(it.overlay.copy(x = 0f, y = 0f, rotation = 0f, opacity = 1f), width, height), it.startSec, it.startSec + it.durationSec, clock, it.overlay, it.autos) { sec -> it.coveredAt(sec, segments) } })
             }
             val composition = Composition.Builder(video, audio).setEffects(Effects(emptyList(), frameEffects)).build()
 

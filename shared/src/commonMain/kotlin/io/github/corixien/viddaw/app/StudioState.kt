@@ -707,28 +707,29 @@ class StudioState(
     /** Video clips of all video tracks in timeline order, trimmed so they never overlap. */
     fun videoSegments(): List<VideoSegment> {
         val bpm = project.bpm
-        val entries = project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { t ->
+        val entries = project.tracks.withIndex().filter { it.value.type == TrackType.Video && !it.value.mute }.flatMap { (index, t) ->
             val autos = t.autosFor("v:", bpm)
-            t.clips.filter { it.video != null }.map { it to autos }
+            t.clips.filter { it.video != null }.map { Triple(it, autos, index) }
         }.sortedBy { it.first.start }
-        return entries.mapIndexedNotNull { i, (c, autos) ->
+        return entries.mapIndexedNotNull { i, (c, autos, index) ->
             val start = ticksToFrames(c.start, bpm)
             val nextStart = entries.getOrNull(i + 1)?.let { ticksToFrames(it.first.start, bpm) } ?: Long.MAX_VALUE
             val frames = minOf(c.frames, nextStart - start)
             if (frames <= 0 || c.video == null) null
-            else VideoSegment(c.video, start.toDouble() / SAMPLE_RATE, c.offset.toDouble() / SAMPLE_RATE, frames.toDouble() / SAMPLE_RATE, c.fx, c.id, autos)
+            else VideoSegment(c.video, start.toDouble() / SAMPLE_RATE, c.offset.toDouble() / SAMPLE_RATE, frames.toDouble() / SAMPLE_RATE, c.fx, c.id, autos, index)
         }
     }
 
     /** Texts and shapes of all video tracks; later tracks are drawn on top. */
     fun overlaySegments(): List<OverlaySegment> {
         val bpm = project.bpm
-        return project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { t ->
+        // The top track is the top layer, so draw from the bottom track up; the last one drawn is on top.
+        return project.tracks.withIndex().filter { it.value.type == TrackType.Video && !it.value.mute }.reversed().flatMap { (index, t) ->
             val autos = t.autosFor("o:", bpm)
             t.clips.mapNotNull { c ->
                 val o = c.overlay ?: return@mapNotNull null
                 val start = ticksToFrames(c.start, bpm)
-                OverlaySegment(o, start.toDouble() / SAMPLE_RATE, (ticksToFrames(c.start + c.length, bpm) - start).toDouble() / SAMPLE_RATE, c.id, autos)
+                OverlaySegment(o, start.toDouble() / SAMPLE_RATE, (ticksToFrames(c.start + c.length, bpm) - start).toDouble() / SAMPLE_RATE, c.id, autos, index)
             }
         }
     }

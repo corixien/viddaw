@@ -692,7 +692,7 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                             val wanted = snap(startClip.start + (tick - grabTick).toLong(), grid).coerceAtLeast(0)
                                             val rows = studio.rows(density)
                                             val y = change.position.y - rulerPx + vScroll.value
-                                            val under = rows.at(y)?.index ?: if (rows.isNotEmpty() && y >= rows.last().top + rows.last().height) dragBase.tracks.size else startRow
+                                            val under = rows.at(y)?.index ?: if (y < 0) -1 else if (rows.isNotEmpty() && y >= rows.last().top + rows.last().height) dragBase.tracks.size else startRow
                                             val delta = wanted - (dragBase.startOf(startClip.id) ?: wanted)
                                             studio.edit { dragBase.moveClipsAcross(moveIds, delta, under - startRow) }
                                         }

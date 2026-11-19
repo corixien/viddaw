@@ -17,10 +17,14 @@ enum class ExportFormat(val label: String, val extension: String, val video: Boo
 class VideoSegment(
     val uri: String, val startSec: Double, val sourceOffsetSec: Double, val durationSec: Double,
     val fx: VideoFx = VideoFx(), val clipId: Long = 0, val autos: List<VideoAuto> = emptyList(),
+    val trackIndex: Int = 0,
 )
 
 /** A text or shape resolved to seconds. */
-class OverlaySegment(val overlay: Overlay, val startSec: Double, val durationSec: Double, val clipId: Long = 0, val autos: List<VideoAuto> = emptyList())
+class OverlaySegment(val overlay: Overlay, val startSec: Double, val durationSec: Double, val clipId: Long = 0, val autos: List<VideoAuto> = emptyList(), val trackIndex: Int = 0) {
+    /** The upper track wins: a picture on a track above this overlay hides it while it plays. */
+    fun coveredAt(sec: Double, videos: List<VideoSegment>) = videos.any { sec >= it.startSec && sec < it.startSec + it.durationSec && it.trackIndex < trackIndex }
+}
 
 /** Everything the shared code needs from the host OS. One implementation per platform. */
 interface Platform {

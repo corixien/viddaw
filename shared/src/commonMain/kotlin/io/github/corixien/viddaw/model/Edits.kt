@@ -81,9 +81,9 @@ fun Project.moveClipsAcross(ids: Set<Long>, delta: Long, rows: Int): Project {
     if (moving.isEmpty()) return this
     val d = delta.coerceAtLeast(-moving.minOf { it.start })
     val sources = tracks.indices.filter { i -> tracks[i].clips.any { it.id in ids } }
-    val r = rows.coerceAtLeast(-sources.first())
+    val r = rows
     if (r == 0) return mapClips(ids) { it.copy(start = it.start + d) }
-    val needNew = sources.any { it + r >= tracks.size }
+    val needNew = sources.any { it + r !in tracks.indices }
     var p = this
     val destOf = HashMap<Int, Long>()
     for (i in sources) {
@@ -97,6 +97,11 @@ fun Project.moveClipsAcross(ids: Set<Long>, delta: Long, rows: Int): Project {
             }
             else -> src.id
         }
+    }
+    // Going up past the first track puts the new ones at the top, in their old order.
+    if (needNew && r < 0) {
+        val made = p.tracks.size - tracks.size
+        p = p.copy(tracks = p.tracks.takeLast(made) + p.tracks.dropLast(made))
     }
     val sourceIds = sources.map { tracks[it].id }.toSet()
     val arriving = HashMap<Long, MutableList<Clip>>()
