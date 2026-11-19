@@ -227,11 +227,13 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
             when (format) {
                 ExportFormat.Wav -> wav.copyTo(out, overwrite = true)
                 ExportFormat.Flac -> encode(wav, out, MediaFormat.MIMETYPE_AUDIO_FLAC, muxed = false)
+                ExportFormat.Mp3 -> check(io.github.corixien.viddaw.engine.Mp3.encode(wav.path, out.path, 256))
                 else -> encode(wav, out, MediaFormat.MIMETYPE_AUDIO_AAC, muxed = true)
             }
             val mime = when (format) {
                 ExportFormat.Wav -> "audio/x-wav"
                 ExportFormat.Flac -> "audio/flac"
+                ExportFormat.Mp3 -> "audio/mpeg"
                 else -> "audio/mp4"
             }
             publish(out, name, format.extension, mime, video = false).also { out.delete() }

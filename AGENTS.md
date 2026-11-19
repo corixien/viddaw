@@ -39,5 +39,12 @@ recording. Own components in `ui/Kit.kt`, no Material widgets. Animations answer
 Permissive dependencies only (Apache, MIT, BSD, ISC, OFL). No GPL or AGPL code, no proprietary
 SDKs, no samples or assets from other products. Update `THIRD_PARTY_NOTICES.md` with every new dependency.
 
+### Licence exception: MP3 (LGPL)
+MP3 export uses Shine (`third_party/shine`, LGPL 2, source and COPYING included). This breaks the permissive-only rule on purpose and
+is the only exception: no permissive MP3 encoder exists, and a new Layer III encoder (psychoacoustics, Huffman tables, filterbank)
+was judged too large to write and verify here. To stay within the LGPL, Shine is built as its own `libshine.so` that `libviddaw_mp3.so`
+(`engine/android/mp3_jni.cpp`) links dynamically, so users can replace it. Do not link it statically into the engine, and do not add other
+LGPL or GPL code. Keep the NOTICES entry in step.
+
 ## Secrets
 There are none in the repo. The release keystore and its passwords live in `~/.config/viddaw/` and must stay there.

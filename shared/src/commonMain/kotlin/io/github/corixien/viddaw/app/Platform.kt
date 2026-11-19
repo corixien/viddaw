@@ -10,7 +10,7 @@ import io.github.corixien.viddaw.model.VideoFx
 class PickedMedia(val uri: String, val name: String)
 
 enum class ExportFormat(val label: String, val extension: String, val video: Boolean = false) {
-    Wav("WAV", "wav"), Flac("FLAC", "flac"), M4a("M4A (AAC)", "m4a"), Mp4("MP4 video", "mp4", video = true)
+    Wav("WAV", "wav"), Flac("FLAC", "flac"), M4a("M4A (AAC)", "m4a"), Mp3("MP3", "mp3"), Mp4("MP4 video", "mp4", video = true)
 }
 
 /** A video clip resolved to seconds, in timeline order, for preview and export. */

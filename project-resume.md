@@ -58,7 +58,7 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
 - Overlay lanes `o:x|y|size|rotation|opacity` on video tracks (`OVERLAY_AUTO`, `Overlay.withAuto`).
 - Colours: `Overlay.custom` (ARGB, 0 = use `color`); rainbow button opens an HSV mixer (`ColorChoice` in `ui/ClipTools.kt`).
 - Fonts: Lexend (variable font) is the app font and default text font; `OVERLAY_FONTS` (15 families, OFL) match `FONT_RES` in `AndroidPlatform.kt`. Overlay text uses each font's default weight in preview and export. Inter now only ships regular.
-- MP3 export NOT built: Android has no MP3 encoder and the usable ones (LAME, Shine) are LGPL, which AGENTS.md excludes. Needs a licence decision from the user.
+- MP3 export: Shine (LGPL, `third_party/shine`) as separate `libshine.so`, JNI in `engine/android/mp3_jni.cpp`, `engine/Mp3.kt`, 256 kbps. The user approved the exception after a from-scratch encoder was judged too large; recorded in AGENTS.md. Not tested on the device.
 
 ## Current state (2026-11-15)
 Version 0.2.0 in the tree and installed on the phone as a debug build; the published release is still 0.1.0.

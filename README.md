@@ -28,7 +28,7 @@ no account, no cloud, no ads, no tracking.
 - Per video clip: colour, filters, blur, opacity, size, position, rotation, mirror, transitions in and out
 - Texts and shapes over the picture, placed with the fingers in the preview, with snapping and an optional grid
 - Automation lanes for volume, pan, effect parameters and video settings; EQ with five draggable bands
-- Export to WAV (24 bit), FLAC, M4A (AAC) and MP4
+- Export to WAV (24 bit), FLAC, M4A (AAC), MP3 and MP4
 - Pictures as overlays with adjustable length; text in 15 fonts and any colour
 - Clips move between tracks; new tracks appear when dragged past the last one
 - Light, dark and system theme; English and German
@@ -92,4 +92,4 @@ planned desktop and web versions.
 
 Apache License 2.0, see [LICENSE](LICENSE). Third-party components are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The built-in drum kit and sampler tone are
-synthesised by the engine; the app ships no third-party samples.
+synthesised by the engine; the app ships no third-party samples. MP3 export uses the LGPL encoder Shine as a separate library.
