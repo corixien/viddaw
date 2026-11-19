@@ -102,6 +102,7 @@ import io.github.corixien.viddaw.model.lengthTicks
 import io.github.corixien.viddaw.model.mapTrack
 import io.github.corixien.viddaw.model.moveClip
 import io.github.corixien.viddaw.model.moveClips
+import io.github.corixien.viddaw.model.moveClipsAcross
 import io.github.corixien.viddaw.model.moveTrack
 import io.github.corixien.viddaw.model.snap
 import io.github.corixien.viddaw.model.ticksPerBar
@@ -214,9 +215,10 @@ fun Timeline(studio: StudioState, modifier: Modifier = Modifier) {
         HeaderColumn(
             studio, vScroll,
             left = { headerGeometry().first },
-            onSwipe = { dx -> scope.launch { mixer.snapTo((mixer.value + dx / (wPx - basePx)).coerceIn(0f, 1f)) } },
+            onSwipe = { dx -> scope.launch { mixer.snapTo((mixer.value + dx / ((wPx - basePx) * 0.5f)).coerceIn(0f, 1f)) } },
             onSwipeEnd = { velocity ->
-                val open = if (abs(velocity) > 500f) velocity > 0 else mixer.value > 0.5f
+                // The swipe needs only half the width, and a third of it decides.
+                val open = if (abs(velocity) > 400f) velocity > 0 else if (studio.mixerOpen) mixer.value > 0.67f else mixer.value > 0.33f
                 studio.mixerOpen = open
                 scope.launch { mixer.animateTo(if (open) 1f else 0f, settle) }
             },
@@ -402,7 +404,12 @@ fun AutoTarget.title(): String {
         "v:saturation" -> T.saturation
         "v:temperature" -> T.temperature
         "v:hue" -> T.hue
+        "o:x", "o:y", "o:size", "o:rotation", "o:opacity" -> null
         else -> null
+    }
+    if (id.startsWith("o:")) {
+        val field = when (id) { "o:x" -> T.posX; "o:y" -> T.posY; "o:size" -> T.scale; "o:rotation" -> T.rotation; else -> T.opacity }
+        return "${T.textOrShape.of(lang)} · ${field.of(lang)}"
     }
     return own?.of(lang) ?: "$group · $label"
 }
@@ -603,6 +610,9 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                     val leftTick = studio.leftTick(width, density)
                     val grabTick = leftTick + down.position.x / ppt()
                     var moveIds = emptySet<Long>()
+                    // Every move is computed from the project as the drag found it, so tracks made on the way vanish again when dragged back.
+                    var dragBase = studio.project
+                    val startRow = (target as? Hit.OnClip)?.let { t -> studio.project.tracks.indexOfFirst { it.id == t.track.id } } ?: 0
                     val canHold = target is Hit.OnClip || (target is Hit.Empty && target.track != null && grabTick >= 0)
                     // A press on a lane point grabs it; elsewhere in a lane the drag scrolls like on a track.
                     val laneRow = (target as? Hit.OnLane)?.row
@@ -660,7 +670,10 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                     else -> 1
                                 }
                                 if (mode == 2 || mode == 3 || mode == 4) studio.beginGesture()
-                                if (mode == 2) moveIds = studio.targets()
+                                if (mode == 2) {
+                                    moveIds = studio.targets()
+                                    dragBase = studio.project
+                                }
                                 if (mode == 1) studio.spot = null
                             }
                             val tick = leftTick + change.position.x / ppt()
@@ -677,25 +690,12 @@ private fun TimelineCanvas(studio: StudioState, vScroll: ScrollState, modifier: 
                                         1 -> studio.edit { it.trimClipsEnd(linked, snap(tick.toLong(), grid)) }
                                         else -> {
                                             val wanted = snap(startClip.start + (tick - grabTick).toLong(), grid).coerceAtLeast(0)
-                                            if (moveIds.size == 1) {
-                                                val row = studio.rows(density).at(change.position.y - rulerPx + vScroll.value)?.index
-                                                studio.edit { it.moveClip(startClip.id, wanted, row?.let { r -> studio.project.tracks.getOrNull(r)?.id }) }
-                                            } else {
-                                                val now = studio.project.startOf(startClip.id)
-                                                if (now != null) studio.edit { it.moveClips(moveIds, wanted - now) }
-                                            }
+                                            val rows = studio.rows(density)
+                                            val y = change.position.y - rulerPx + vScroll.value
+                                            val under = rows.at(y)?.index ?: if (rows.isNotEmpty() && y >= rows.last().top + rows.last().height) dragBase.tracks.size else startRow
+                                            val delta = wanted - (dragBase.startOf(startClip.id) ?: wanted)
+                                            studio.edit { dragBase.moveClipsAcross(moveIds, delta, under - startRow) }
                                         }
-                                    }
-                                }
-                                4 -> if (laneRow?.lane != null) {
-                                    val lane = laneRow.lane
-                                    val points = studio.project.track(laneRow.track.id)?.lanes?.firstOrNull { it.id == lane.id }?.points.orEmpty()
-                                    if (pointIdx in points.indices) {
-                                        val low = points.getOrNull(pointIdx - 1)?.let { it.tick + 1 } ?: 0L
-                                        val high = points.getOrNull(pointIdx + 1)?.let { it.tick - 1 } ?: Long.MAX_VALUE
-                                        val at = snap(tick.toLong(), grid).coerceIn(low, maxOf(low, high))
-                                        val value = laneValue(change.position.y)
-                                        studio.edit { p -> p.mapLane(laneRow.track.id, lane.id) { l -> l.copy(points = l.points.mapIndexed { i, pt -> if (i == pointIdx) AutoPoint(at, value) else pt }) } }
                                     }
                                 }
                                 3 -> {

@@ -20,7 +20,7 @@ class VideoSegment(
 )
 
 /** A text or shape resolved to seconds. */
-class OverlaySegment(val overlay: Overlay, val startSec: Double, val durationSec: Double, val clipId: Long = 0)
+class OverlaySegment(val overlay: Overlay, val startSec: Double, val durationSec: Double, val clipId: Long = 0, val autos: List<VideoAuto> = emptyList())
 
 /** Everything the shared code needs from the host OS. One implementation per platform. */
 interface Platform {
@@ -39,6 +39,13 @@ interface Platform {
     suspend fun requestMicPermission(): Boolean
     suspend fun pickAudio(): PickedMedia?
     suspend fun pickVideo(): PickedMedia?
+    suspend fun pickImage(): PickedMedia?
+
+    /** A picture scaled so its long side is at most [maxSide] pixels, or null if it cannot be read. */
+    suspend fun loadImage(uri: String, maxSide: Int): ImageBitmap?
+
+    /** The typeface behind [Overlay.font] (index into OVERLAY_FONTS). */
+    fun overlayFont(index: Int): androidx.compose.ui.text.font.FontFamily
 
     /** Decodes the audio of any media file into a float WAV at the engine rate. Returns frames, 0 on failure. */
     suspend fun importAudio(uri: String, destWav: String, onProgress: (Float) -> Unit): Long

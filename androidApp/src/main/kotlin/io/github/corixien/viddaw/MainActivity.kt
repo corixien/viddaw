@@ -12,6 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import io.github.corixien.viddaw.app.AppState
 import io.github.corixien.viddaw.app.ThemeMode
@@ -33,10 +34,11 @@ class MainActivity : ComponentActivity() {
         platform = AndroidPlatform(this)
         app = AppState(platform, engine, scope)
 
+        // Lexend is a variable font; each weight picks its own position on the weight axis.
         val inter = FontFamily(
-            Font(R.font.inter_regular, FontWeight.Normal),
-            Font(R.font.inter_medium, FontWeight.Medium),
-            Font(R.font.inter_semibold, FontWeight.SemiBold),
+            Font(R.font.lexend, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+            Font(R.font.lexend, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+            Font(R.font.lexend, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
         )
         setContent {
             val systemDark = isSystemInDarkTheme()

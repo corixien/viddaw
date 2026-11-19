@@ -56,6 +56,15 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
+import io.github.corixien.viddaw.model.OVERLAY_FONTS
+import io.github.corixien.viddaw.model.OVERLAY_IMAGE
+import io.github.corixien.viddaw.model.argb
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.*
 import io.github.corixien.viddaw.app.Panel
@@ -128,6 +137,7 @@ fun ClipToolbar(studio: StudioState, vScroll: ScrollState, widthPx: Float, heade
             TrackType.Audio -> extra += Action(Lucide.Import, T.importAudio.t) { studio.spot = null; studio.seekTick(spot.tick); studio.importAudio() }
             TrackType.Video -> {
                 extra += Action(Lucide.Import, T.importVideo.t) { studio.spot = null; studio.seekTick(spot.tick); studio.importVideo() }
+                extra += Action(Lucide.Image, T.importImage.t) { studio.spot = null; studio.seekTick(spot.tick); studio.importImage() }
                 extra += Action(Lucide.Shapes, T.textOrShape.t) { studio.spot = null; studio.seekTick(spot.tick); studio.panel = Panel.AddOverlay }
             }
             TrackType.Sampler, TrackType.Drums -> extra += Action(Lucide.Plus, T.newClip.t) {
@@ -379,6 +389,57 @@ private fun TransitionTool(studio: StudioState, fx: VideoFx) {
     SliderRow(T.duration.t, "${fmt(fx.transOutMs / 1000f, 2)} s", (fx.transOutMs - 100) / 2900f, { v -> studio.editFx { it.copy(transOutMs = ms(v)) } }, onStart = studio::beginGesture, onEnd = studio::endGesture, reset = 400 / 2900f)
 }
 
+private fun hsvOf(argb: Int): FloatArray {
+    val r = (argb shr 16 and 255) / 255f
+    val g = (argb shr 8 and 255) / 255f
+    val b = (argb and 255) / 255f
+    val max = maxOf(r, g, b)
+    val d = max - minOf(r, g, b)
+    val h = when {
+        d == 0f -> 0f
+        max == r -> 60f * (((g - b) / d) % 6f)
+        max == g -> 60f * ((b - r) / d + 2f)
+        else -> 60f * ((r - g) / d + 4f)
+    }
+    return floatArrayOf((h + 360f) % 360f, if (max == 0f) 0f else d / max, max)
+}
+
+/** The preset colours, and behind a rainbow button a mixer for any colour. */
+@Composable
+private fun ColorChoice(o: Overlay, onPreset: (Int) -> Unit, onCustom: (Int) -> Unit, onStart: () -> Unit, onEnd: () -> Unit) {
+    var mixing by remember { mutableStateOf(o.custom != 0) }
+    val current = Color(o.argb())
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        OVERLAY_COLORS.forEachIndexed { i, argb ->
+            val on = o.custom == 0 && o.color == i
+            Box(
+                Modifier.size(30.dp).pressable { onPreset(i) }.background(Color(argb), CircleShape)
+                    .border(if (on) 2.dp else 1.dp, if (on) pal.accent else pal.line, CircleShape),
+            )
+        }
+        Box(
+            Modifier.size(30.dp).pressable { mixing = !mixing }
+                .background(
+                    Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)), CircleShape,
+                ).border(if (o.custom != 0 || mixing) 2.dp else 1.dp, if (o.custom != 0 || mixing) pal.accent else pal.line, CircleShape),
+        )
+    }
+    AnimatedVisibility(mixing) {
+        val hsv = remember(o.custom) { hsvOf(o.argb().toInt()) }
+        fun pick(h: Float, s: Float, v: Float) = onCustom(Color.hsv(h.coerceIn(0f, 360f), s.coerceIn(0f, 1f), v.coerceIn(0f, 1f)).toArgb())
+        Column {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(28.dp).background(current, CircleShape).border(1.dp, pal.line, CircleShape))
+                Spacer(Modifier.width(8.dp))
+                Txt("#" + (o.argb().toInt() and 0xFFFFFF).toString(16).padStart(6, '0').uppercase(), style = type.label, color = pal.dim)
+            }
+            SliderRow(T.hue.t, "${hsv[0].roundToInt()}°", hsv[0] / 360f, { pick(it * 360f, if (hsv[1] == 0f) 1f else hsv[1], if (hsv[2] == 0f) 1f else hsv[2]) }, color = current, onStart = onStart, onEnd = onEnd)
+            SliderRow(T.saturation.t, percent(hsv[1]), hsv[1], { pick(hsv[0], it, hsv[2]) }, color = current, onStart = onStart, onEnd = onEnd)
+            SliderRow(T.brightness.t, percent(hsv[2]), hsv[2], { pick(hsv[0], hsv[1], it) }, color = current, onStart = onStart, onEnd = onEnd)
+        }
+    }
+}
+
 @Composable
 private fun OverlayTool(studio: StudioState, o: Overlay) {
     val g = studio::beginGesture
@@ -391,16 +452,25 @@ private fun OverlayTool(studio: StudioState, o: Overlay) {
         }, Modifier.fillMaxWidth(), T.text.t)
         Spacer(Modifier.height(8.dp))
     }
-    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-        OVERLAY_COLORS.forEachIndexed { i, argb ->
-            Box(
-                Modifier.size(30.dp).pressable { set { it.copy(color = i) } }.background(Color(argb), CircleShape)
-                    .border(if (o.color == i) 2.dp else 1.dp, if (o.color == i) pal.accent else pal.line, CircleShape),
-            )
+    if (o.kind != OVERLAY_IMAGE) {
+        ColorChoice(o, { c -> set { it.copy(color = c, custom = 0) } }, { argb -> set { it.copy(custom = argb) } }, g, e)
+        if (o.kind == 0) {
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OVERLAY_FONTS.forEachIndexed { i, name ->
+                    val on = o.font == i
+                    Box(
+                        Modifier.height(36.dp).pressable { set { it.copy(font = i) } }
+                            .background(if (on) pal.accent else pal.raised, RoundedCornerShape(Radius.control))
+                            .border(1.dp, if (on) Color.Transparent else pal.line, RoundedCornerShape(Radius.control)).padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Txt(name, style = type.label.copy(fontFamily = studio.overlayFont(i)), color = if (on) pal.onAccent else pal.text) }
+                }
+            }
         }
     }
     SliderRow(T.scale.t, percent(o.size), (o.size - 0.02f) / 0.78f, { v -> set { it.copy(size = ((0.02f + v * 0.78f) * 200).roundToInt() / 200f) } }, onStart = g, onEnd = e, reset = (0.12f - 0.02f) / 0.78f)
-    if (o.kind != 0) SliderRow(T.width.t, "${fmt(o.aspect, 1)}×", (log2(o.aspect) + 3) / 6, { v -> set { it.copy(aspect = (2f.pow(v * 6 - 3) * 10).roundToInt() / 10f) } }, center = true, onStart = g, onEnd = e)
+    if (o.kind == 1 || o.kind == 2) SliderRow(T.width.t, "${fmt(o.aspect, 1)}×", (log2(o.aspect) + 3) / 6, { v -> set { it.copy(aspect = (2f.pow(v * 6 - 3) * 10).roundToInt() / 10f) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.rotation.t, "${o.rotation.roundToInt()}°", (o.rotation + 180) / 360, { v -> set { it.copy(rotation = (v * 360 - 180).roundToInt().toFloat()) } }, center = true, onStart = g, onEnd = e)
     SliderRow(T.opacity.t, percent(o.opacity), o.opacity, { v -> set { it.copy(opacity = (v * 50).roundToInt() / 50f) } }, onStart = g, onEnd = e, reset = 1f)
     if (o.kind == 0) {
@@ -430,14 +500,14 @@ fun overlayExtent(o: Overlay, frame: Size): Offset {
  * Draws one overlay into a frame that fills the draw scope. The export draws the same
  * geometry with Android's canvas (VideoSupport), so keep the two in step.
  */
-fun DrawScope.drawOverlay(o: Overlay, measurer: TextMeasurer, style: TextStyle, selected: Boolean) {
+fun DrawScope.drawOverlay(o: Overlay, measurer: TextMeasurer, style: TextStyle, selected: Boolean, font: FontFamily? = null, image: ImageBitmap? = null) {
     val centre = Offset(size.width / 2 + o.x * size.width, size.height / 2 + o.y * size.height)
-    val color = Color(OVERLAY_COLORS[o.color.coerceIn(0, OVERLAY_COLORS.lastIndex)]).copy(alpha = o.opacity.coerceIn(0f, 1f))
+    val color = Color(o.argb()).copy(alpha = o.opacity.coerceIn(0f, 1f))
     rotate(o.rotation, centre) {
         var half = overlayExtent(o, size)
         if (o.kind == 0) {
             val px = o.size * size.height * 0.8f
-            val layout = measurer.measure(o.text, style.copy(fontSize = px.toSp(), color = color), maxLines = 1)
+            val layout = measurer.measure(o.text, style.copy(fontSize = px.toSp(), color = color, fontFamily = font ?: style.fontFamily), maxLines = 1)
             half = Offset(layout.size.width / 2f, layout.size.height / 2f)
             if (o.box) {
                 val pad = px * 0.25f
@@ -445,6 +515,9 @@ fun DrawScope.drawOverlay(o: Overlay, measurer: TextMeasurer, style: TextStyle, 
                 drawRoundRect(Color.Black.copy(alpha = 0.55f * o.opacity), centre - half, Size(half.x * 2, half.y * 2), CornerRadius(px * 0.2f))
             }
             drawText(layout, topLeft = centre - Offset(layout.size.width / 2f, layout.size.height / 2f))
+        } else if (o.kind == OVERLAY_IMAGE) {
+            if (image != null) drawImage(image, IntOffset.Zero, IntSize(image.width, image.height), IntOffset((centre.x - half.x).roundToInt(), (centre.y - half.y).roundToInt()), IntSize((half.x * 2).roundToInt(), (half.y * 2).roundToInt()), alpha = o.opacity.coerceIn(0f, 1f))
+            else drawRect(Color.Gray.copy(alpha = 0.4f), centre - half, Size(half.x * 2, half.y * 2))
         } else if (o.kind == 1) {
             drawRect(color, centre - half, Size(half.x * 2, half.y * 2))
         } else {

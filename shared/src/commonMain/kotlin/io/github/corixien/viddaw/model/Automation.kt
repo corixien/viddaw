@@ -36,8 +36,14 @@ val VIDEO_AUTO = listOf(
     Triple("saturation", "Saturation", -1f to 1f), Triple("temperature", "Temperature", -1f to 1f), Triple("hue", "Hue", -180f to 180f),
 )
 
+/** Fields of texts, shapes and pictures a lane can drive: (id, English label, min, max). */
+val OVERLAY_AUTO = listOf(
+    Triple("x", "Position X", -1f to 1f), Triple("y", "Position Y", -1f to 1f), Triple("size", "Size", 0.02f to 0.8f),
+    Triple("rotation", "Rotation", -180f to 180f), Triple("opacity", "Opacity", 0f to 1f),
+)
+
 fun Track.autoTargets(): List<AutoTarget> =
-    if (type == TrackType.Video) VIDEO_AUTO.map { AutoTarget("v:${it.first}", it.second) }
+    if (type == TrackType.Video) VIDEO_AUTO.map { AutoTarget("v:${it.first}", it.second) } + OVERLAY_AUTO.map { AutoTarget("o:${it.first}", it.second, "Text") }
     else listOf(AutoTarget("vol", "Volume"), AutoTarget("pan", "Pan")) + effects.flatMap { e ->
         val spec = effectSpec(e.type) ?: return@flatMap emptyList()
         spec.params.mapIndexedNotNull { i, ps -> if (ps.choices.isEmpty()) AutoTarget("fx:${e.id}:$i", ps.name, spec.name) else null }
@@ -57,6 +63,7 @@ fun Track.laneValue(target: String, n: Float): Float? {
             val spec = effects.firstOrNull { it.id == id }?.let { effectSpec(it.type) } ?: return null
             spec.params.getOrNull(index)?.fromNormalized(v)
         }
+        target.startsWith("o:") -> OVERLAY_AUTO.firstOrNull { it.first == target.removePrefix("o:") }?.let { it.third.first + (it.third.second - it.third.first) * v }
         target.startsWith("v:") -> VIDEO_AUTO.firstOrNull { it.first == target.removePrefix("v:") }?.let { it.third.first + (it.third.second - it.third.first) * v }
         else -> null
     }
@@ -72,6 +79,8 @@ fun Track.laneRest(target: String): Float = when {
         val spec = e?.let { effectSpec(it.type) }
         spec?.params?.getOrNull(index)?.let { it.toNormalized(e.params.getOrElse(index) { _ -> it.default }) } ?: 0.5f
     }
+    target == "o:size" -> (0.12f - 0.02f) / 0.78f
+    target == "o:opacity" -> 1f
     target == "v:scale" || target == "v:opacity" -> VIDEO_AUTO.first { it.first == target.removePrefix("v:") }.let { (1f - it.third.first) / (it.third.second - it.third.first) }
     else -> 0.5f
 }
@@ -125,4 +134,22 @@ fun VideoFx.withAuto(autos: List<VideoAuto>, sec: Double): VideoFx {
         }
     }
     return fx
+}
+
+private fun List<VideoAuto>.valueAt(field: String, sec: Double): Float? {
+    val a = firstOrNull { it.field == field && it.seconds.isNotEmpty() } ?: return null
+    if (sec <= a.seconds.first()) return a.values.first()
+    if (sec >= a.seconds.last()) return a.values.last()
+    var i = 1
+    while (a.seconds[i] <= sec) i++
+    return a.values[i - 1] + (a.values[i] - a.values[i - 1]) * ((sec - a.seconds[i - 1]) / (a.seconds[i] - a.seconds[i - 1])).toFloat()
+}
+
+/** A text, shape or picture with the "o:" lanes of its track laid over it. */
+fun Overlay.withAuto(autos: List<VideoAuto>, sec: Double): Overlay {
+    if (autos.isEmpty()) return this
+    return copy(
+        x = autos.valueAt("x", sec) ?: x, y = autos.valueAt("y", sec) ?: y, size = autos.valueAt("size", sec) ?: size,
+        rotation = autos.valueAt("rotation", sec) ?: rotation, opacity = autos.valueAt("opacity", sec) ?: opacity,
+    )
 }

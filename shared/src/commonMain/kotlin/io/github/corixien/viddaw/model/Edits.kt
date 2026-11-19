@@ -71,6 +71,42 @@ fun Project.moveClip(clipId: Long, newStart: Long, toTrackId: Long? = null): Pro
     })
 }
 
+/**
+ * Moves clips by [delta] ticks and [rows] tracks. Each source track goes to the track [rows] places away if that
+ * has the same type. If any of them would fall off the end, new tracks of the right types (and colours) are made
+ * at the end, so a video and its sound move down together onto a fresh pair. Otherwise a clip stays in its track.
+ */
+fun Project.moveClipsAcross(ids: Set<Long>, delta: Long, rows: Int): Project {
+    val moving = clips(ids)
+    if (moving.isEmpty()) return this
+    val d = delta.coerceAtLeast(-moving.minOf { it.start })
+    val sources = tracks.indices.filter { i -> tracks[i].clips.any { it.id in ids } }
+    val r = rows.coerceAtLeast(-sources.first())
+    if (r == 0) return mapClips(ids) { it.copy(start = it.start + d) }
+    val needNew = sources.any { it + r >= tracks.size }
+    var p = this
+    val destOf = HashMap<Int, Long>()
+    for (i in sources) {
+        val src = tracks[i]
+        val dst = tracks.getOrNull(i + r)
+        destOf[i] = when {
+            dst != null && dst.type == src.type -> dst.id
+            needNew -> {
+                p = p.addTrack(src.type, src.name, src.color)
+                p.tracks.last().id
+            }
+            else -> src.id
+        }
+    }
+    val sourceIds = sources.map { tracks[it].id }.toSet()
+    val arriving = HashMap<Long, MutableList<Clip>>()
+    for (i in sources) arriving.getOrPut(destOf.getValue(i)) { mutableListOf() } += tracks[i].clips.filter { it.id in ids }.map { it.copy(start = it.start + d) }
+    return p.copy(tracks = p.tracks.map { t ->
+        val kept = if (t.id in sourceIds) t.clips.filter { it.id !in ids } else t.clips
+        t.copy(clips = kept + (arriving[t.id] ?: emptyList()))
+    })
+}
+
 /** Shifts several clips by the same amount; the earliest one stops at the project start. */
 fun Project.moveClips(ids: Set<Long>, delta: Long): Project {
     val first = clips(ids).minOfOrNull { it.start } ?: return this

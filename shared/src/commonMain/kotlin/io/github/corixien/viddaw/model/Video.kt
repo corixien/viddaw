@@ -43,7 +43,20 @@ data class Overlay(
     val rotation: Float = 0f,
     val opacity: Float = 1f,
     val box: Boolean = false,     // text on a dark plate
+    val font: Int = 0,            // index into OVERLAY_FONTS
+    val custom: Int = 0,          // own colour as ARGB; 0 uses [color]
 )
+
+/** Kind 3 is a picture: [Overlay.text] holds its URI and [Overlay.aspect] its width over height. */
+const val OVERLAY_IMAGE = 3
+
+val OVERLAY_FONTS = listOf(
+    "Lexend", "Inter", "Roboto", "Open Sans", "Montserrat", "Poppins", "Playfair Display",
+    "Oswald", "Bebas Neue", "Anton", "Pacifico", "Lobster", "Dancing Script", "Caveat", "Source Code Pro",
+)
+
+/** The colour of an overlay as ARGB. */
+fun Overlay.argb(): Long = if (custom != 0) custom.toLong() and 0xFFFFFFFFL else OVERLAY_COLORS[color.coerceIn(0, OVERLAY_COLORS.lastIndex)]
 
 val OVERLAY_COLORS = listOf(0xFFFFFFFF, 0xFF111111, 0xFFE5704B, 0xFFD9A441, 0xFF53B37F, 0xFF4A90E2, 0xFF9B6BD6, 0xFFE0567A)
 

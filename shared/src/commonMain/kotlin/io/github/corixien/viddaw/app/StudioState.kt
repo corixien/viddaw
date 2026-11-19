@@ -12,6 +12,7 @@ import io.github.corixien.viddaw.engine.engineSnapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import io.github.corixien.viddaw.model.Clip
 import io.github.corixien.viddaw.model.Overlay
+import io.github.corixien.viddaw.model.OVERLAY_IMAGE
 import io.github.corixien.viddaw.model.VideoAuto
 import io.github.corixien.viddaw.model.laneValue
 import io.github.corixien.viddaw.model.clips
@@ -66,6 +67,15 @@ sealed interface Panel {
     data class ClipTool(val tool: Tool) : Panel
     data object AddOverlay : Panel
     data class AddLane(val trackId: Long) : Panel
+}
+
+/** The lanes of a video track whose target starts with [prefix], in seconds and real values. */
+fun Track.autosFor(prefix: String, bpm: Double): List<VideoAuto> = lanes.mapNotNull { l ->
+    if (!l.target.startsWith(prefix) || l.points.isEmpty()) return@mapNotNull null
+    VideoAuto(
+        l.target.removePrefix(prefix), DoubleArray(l.points.size) { ticksToFrames(l.points[it].tick, bpm).toDouble() / SAMPLE_RATE },
+        FloatArray(l.points.size) { laneValue(l.target, l.points[it].value) ?: 0f },
+    )
 }
 
 /** Aspect ratios behind [Project.frame]; 0 follows the first video. */
@@ -615,7 +625,7 @@ class StudioState(
      * Imports a video as two grouped clips: the picture on a video track and its sound on an
      * audio track of the same colour, so both are cut and moved together until they are ungrouped.
      */
-    fun importVideo() = scope.launch {
+    fun importVideo(newTracks: Boolean = false) = scope.launch {
         val picked = platform.pickVideo() ?: return@launch
         val durationMs = platform.videoDurationMs(picked.uri)
         if (durationMs <= 0) {
@@ -627,7 +637,7 @@ class StudioState(
         val at = positionTick
         val name = picked.name.substringBeforeLast('.')
         beginGesture()
-        val videoTrack = selectedTrack?.let(project::track)?.takeIf { it.type == TrackType.Video } ?: run {
+        val videoTrack = selectedTrack?.let(project::track)?.takeIf { !newTracks && it.type == TrackType.Video } ?: run {
             edit { it.addTrack(TrackType.Video, "Video ${it.tracks.count { t -> t.type == TrackType.Video } + 1}") }
             project.tracks.last()
         }
@@ -637,7 +647,9 @@ class StudioState(
         } else {
             // The sound goes to the audio track right below the video track if that is its partner.
             val below = project.tracks.getOrNull(project.tracks.indexOfFirst { it.id == videoTrack.id } + 1)
-            val audioTrack = below?.takeIf { it.type == TrackType.Audio && it.color == videoTrack.color } ?: run {
+            val endTick = at + framesToTicks(frames, project.bpm)
+            val free = below?.clips?.none { it.start < endTick && it.endTick(project.bpm) > at } == true
+            val audioTrack = below?.takeIf { !newTracks && free && it.type == TrackType.Audio && it.color == videoTrack.color } ?: run {
                 edit { it.addTrack(TrackType.Audio, "${videoTrack.name} Audio".take(24), videoTrack.color) }
                 project.tracks.last()
             }
@@ -696,13 +708,7 @@ class StudioState(
     fun videoSegments(): List<VideoSegment> {
         val bpm = project.bpm
         val entries = project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { t ->
-            val autos = t.lanes.mapNotNull { l ->
-                if (!l.target.startsWith("v:") || l.points.isEmpty()) return@mapNotNull null
-                VideoAuto(
-                    l.target.removePrefix("v:"), DoubleArray(l.points.size) { ticksToFrames(l.points[it].tick, bpm).toDouble() / SAMPLE_RATE },
-                    FloatArray(l.points.size) { t.laneValue(l.target, l.points[it].value) ?: 0f },
-                )
-            }
+            val autos = t.autosFor("v:", bpm)
             t.clips.filter { it.video != null }.map { it to autos }
         }.sortedBy { it.first.start }
         return entries.mapIndexedNotNull { i, (c, autos) ->
@@ -717,11 +723,51 @@ class StudioState(
     /** Texts and shapes of all video tracks; later tracks are drawn on top. */
     fun overlaySegments(): List<OverlaySegment> {
         val bpm = project.bpm
-        return project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { it.clips }.mapNotNull { c ->
-            val o = c.overlay ?: return@mapNotNull null
-            val start = ticksToFrames(c.start, bpm)
-            OverlaySegment(o, start.toDouble() / SAMPLE_RATE, (ticksToFrames(c.start + c.length, bpm) - start).toDouble() / SAMPLE_RATE, c.id)
+        return project.tracks.filter { it.type == TrackType.Video && !it.mute }.flatMap { t ->
+            val autos = t.autosFor("o:", bpm)
+            t.clips.mapNotNull { c ->
+                val o = c.overlay ?: return@mapNotNull null
+                val start = ticksToFrames(c.start, bpm)
+                OverlaySegment(o, start.toDouble() / SAMPLE_RATE, (ticksToFrames(c.start + c.length, bpm) - start).toDouble() / SAMPLE_RATE, c.id, autos)
+            }
         }
+    }
+
+    /** Puts a picture over the video at the playhead, three seconds long; drag its end to change that. */
+    fun importImage() = scope.launch {
+        val picked = platform.pickImage() ?: return@launch
+        val bitmap = platform.loadImage(picked.uri, 1280) ?: run {
+            notice = T.importFailed
+            return@launch
+        }
+        val at = positionTick
+        val aspect = bitmap.width.toFloat() / bitmap.height
+        // As large as fits the picture frame.
+        val size = minOf(1f, frameAspect / aspect)
+        beginGesture()
+        val target = selectedTrack?.let(project::track)?.takeIf { it.type == TrackType.Video }?.id
+            ?: project.tracks.firstOrNull { it.type == TrackType.Video }?.id
+            ?: run {
+                addTrack(TrackType.Video, "Video")
+                project.tracks.last().id
+            }
+        val id = project.nextId
+        images[picked.uri] = bitmap
+        edit { it.addClip(target, Clip(0, at, picked.name.substringBeforeLast('.'), length = framesToTicks(SAMPLE_RATE * 3L, it.bpm), overlay = Overlay(OVERLAY_IMAGE, picked.uri, size = size, aspect = aspect))) }
+        endGesture()
+        selectClip(id)
+    }
+
+    fun overlayFont(index: Int) = platform.overlayFont(index)
+
+    val images = mutableStateMapOf<String, ImageBitmap>()
+    private val imagesLoading = HashSet<String>()
+
+    /** A picture overlay's bitmap; loading starts on first use. */
+    fun imageFor(uri: String): ImageBitmap? {
+        images[uri]?.let { return it }
+        if (imagesLoading.add(uri)) scope.launch { platform.loadImage(uri, 1280)?.let { images[uri] = it } }
+        return null
     }
 
     val hasVideo: Boolean get() = project.tracks.any { t -> t.type == TrackType.Video && t.clips.isNotEmpty() }

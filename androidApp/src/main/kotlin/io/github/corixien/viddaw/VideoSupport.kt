@@ -4,6 +4,10 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import io.github.corixien.viddaw.model.OVERLAY_IMAGE
+import io.github.corixien.viddaw.model.VideoAuto
+import io.github.corixien.viddaw.model.argb
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
@@ -60,7 +64,6 @@ import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import io.github.corixien.viddaw.app.OverlaySegment
 import io.github.corixien.viddaw.app.VideoSegment
-import io.github.corixien.viddaw.model.OVERLAY_COLORS
 import io.github.corixien.viddaw.model.Overlay
 import io.github.corixien.viddaw.model.VideoFx
 import io.github.corixien.viddaw.model.colorMatrix
@@ -245,24 +248,31 @@ class VideoSupport(private val context: Context) {
         return effects
     }
 
-    /** A frame-sized transparent bitmap with one overlay on it. Mirrors drawOverlay in the shared UI. */
+    /** A picture, upright, scaled down so its long side is at most [maxSide]. */
+    fun decodeImage(uri: Uri, maxSide: Int): Bitmap? = runCatching {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+            val side = maxOf(info.size.width, info.size.height)
+            if (side > maxSide) decoder.setTargetSize(info.size.width * maxSide / side, info.size.height * maxSide / side)
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    }.getOrNull()
+
+    /**
+     * A frame-sized transparent bitmap with one overlay on it, centred, upright and fully opaque. Position,
+     * turn, size and opacity are applied per frame by [TimedOverlay]. Mirrors drawOverlay in the shared UI.
+     */
     private fun overlayBitmap(o: Overlay, width: Int, height: Int): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val cx = width / 2f + o.x * width
-        val cy = height / 2f + o.y * height
-        val argb = OVERLAY_COLORS[o.color.coerceIn(0, OVERLAY_COLORS.lastIndex)].toInt()
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = argb
-            alpha = (o.opacity.coerceIn(0f, 1f) * 255).toInt()
-        }
-        canvas.rotate(o.rotation, cx, cy)
+        val cx = width / 2f
+        val cy = height / 2f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = o.argb().toInt() }
         val hh = o.size * height / 2
         when (o.kind) {
             0 -> {
                 val px = o.size * height * 0.8f
                 paint.textSize = px
-                paint.typeface = context.resources.getFont(R.font.inter_semibold)
+                paint.typeface = context.resources.getFont(FONT_RES[o.font.coerceIn(0, FONT_RES.lastIndex)])
                 paint.letterSpacing = -0.1f / 16f
                 val textWidth = paint.measureText(o.text)
                 val fm = paint.fontMetrics
@@ -270,10 +280,13 @@ class VideoSupport(private val context: Context) {
                     val pad = px * 0.25f
                     val halfW = textWidth / 2 + pad
                     val halfH = (fm.descent - fm.ascent) / 2 + pad * 0.4f
-                    val plate = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK; alpha = (0.55f * o.opacity * 255).toInt() }
+                    val plate = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK; alpha = (0.55f * 255).toInt() }
                     canvas.drawRoundRect(RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH), px * 0.2f, px * 0.2f, plate)
                 }
                 canvas.drawText(o.text, cx - textWidth / 2, cy - (fm.ascent + fm.descent) / 2, paint)
+            }
+            OVERLAY_IMAGE -> decodeImage(Uri.parse(o.text), 2048)?.let {
+                canvas.drawBitmap(it, null, RectF(cx - hh * o.aspect, cy - hh, cx + hh * o.aspect, cy + hh), Paint(Paint.FILTER_BITMAP_FLAG))
             }
             1 -> canvas.drawRect(cx - hh * o.aspect, cy - hh, cx + hh * o.aspect, cy + hh, paint)
             else -> canvas.drawOval(RectF(cx - hh * o.aspect, cy - hh, cx + hh * o.aspect, cy + hh), paint)
@@ -281,14 +294,24 @@ class VideoSupport(private val context: Context) {
         return bitmap
     }
 
-    /** Shows its bitmap only while the overlay clip lasts. */
-    private class TimedOverlay(private val bitmap: Bitmap, private val startSec: Double, private val endSec: Double, private val clock: Clock) : BitmapOverlay() {
-        private val shown = StaticOverlaySettings.Builder().build()
+    /** Shows its bitmap only while the overlay clip lasts, placed where the overlay is at that moment. */
+    private class TimedOverlay(
+        private val bitmap: Bitmap, private val startSec: Double, private val endSec: Double, private val clock: Clock,
+        private val base: Overlay, private val autos: List<VideoAuto>,
+    ) : BitmapOverlay() {
         private val hidden = StaticOverlaySettings.Builder().setAlphaScale(0f).build()
         override fun getBitmap(presentationTimeUs: Long): Bitmap = bitmap
         override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
             val t = clock.seconds(presentationTimeUs)
-            return if (t >= startSec && t < endSec) shown else hidden
+            if (t < startSec || t >= endSec) return hidden
+            val o = base.withAuto(autos, t)
+            val k = if (base.size > 0f) o.size / base.size else 1f
+            return StaticOverlaySettings.Builder()
+                .setBackgroundFrameAnchor(2f * o.x, -2f * o.y)
+                .setRotationDegrees(-o.rotation)
+                .setScale(k, k)
+                .setAlphaScale(o.opacity.coerceIn(0f, 1f))
+                .build()
         }
     }
 
@@ -343,7 +366,7 @@ class VideoSupport(private val context: Context) {
             frameEffects += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
             if (overlays.isNotEmpty()) {
                 val clock = Clock()
-                frameEffects += OverlayEffect(overlays.map { TimedOverlay(overlayBitmap(it.overlay, width, height), it.startSec, it.startSec + it.durationSec, clock) })
+                frameEffects += OverlayEffect(overlays.map { TimedOverlay(overlayBitmap(it.overlay.copy(x = 0f, y = 0f, rotation = 0f, opacity = 1f), width, height), it.startSec, it.startSec + it.durationSec, clock, it.overlay, it.autos) })
             }
             val composition = Composition.Builder(video, audio).setEffects(Effects(emptyList(), frameEffects)).build()
 

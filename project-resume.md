@@ -15,7 +15,7 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
 - Only permissive dependencies. No Rubber Band, JUCE, Apple fonts or symbols. No code, assets,
   names or loops from the analysed app. Drum kit and sampler tone are synthesised in `instruments.cpp`.
 - Design: flat, no gradients, macOS feel, graphite accent, colour only from tracks and clips,
-  Inter font, Lucide icons, animations on every user action. Own components (`ui/Kit.kt`), no Material widgets.
+  Lexend font, Lucide icons, animations on every user action. Own components (`ui/Kit.kt`), no Material widgets.
 - German + English through the `Str(en, de)` table in `ui/Strings.kt`; follows the system, overridable.
   Theme light, dark or system.
 - No instruments beyond a simple sampler and a drum rack, both with MIDI.
@@ -49,6 +49,16 @@ accounts, cloud, ads or tracking. Not sold; must be legally clean. Apache-2.0, p
 - Automation (`model/Automation.kt`): `Track.lanes`, targets vol, pan, `fx:<id>:<param>`, video `v:<field>` (no blur). Engine record `A` (see `engine.h`), lane overrides the fixed setting, evaluated per block at the block start. Video lanes are laid over `VideoFx` through `withAuto` for preview and export. UI: Spline button in the top bar shows lanes under tracks (`StudioState.showAuto`, `rows()` in `ui/Timeline.kt` gives variable row heights); tap lane = add point, drag point = move, double tap point = delete; "+ Automation" row under the selected track. Track reordering by long press is off while lanes are shown.
 - Faders: `faderToDb`/`dbToFader` moved to `model/Automation.kt`.
 - Not verified: everything above on the device; the mixer strips do not show lane-driven values.
+
+## Batch 2026-11-19 (built, NOT tested on the device, not installed)
+- Clips move between tracks (`Project.moveClipsAcross`, `ui/Timeline.kt` drag): each drag event is computed from the project at drag start; a group (video + sound) moves as a set and gets fresh tracks of the same types and colours when it would fall off the end; dragging below the last track also creates one.
+- Mixer swipe needs half the distance (divisor 0.5, thresholds 0.33 / 0.67).
+- `importVideo(newTracks)`: the "Add track" sheet always makes a new video and audio track; elsewhere the sound reuses the track below only if it is audio, same colour and free at that time (this was the bug of videos landing on old tracks).
+- Pictures: overlay kind 3 (`OVERLAY_IMAGE`, URI in `Overlay.text`, `aspect` from the bitmap), 3 s long, same editing as shapes. `Platform.pickImage/loadImage`; export draws a centred bitmap and animates position, turn, size and opacity through Media3 `OverlaySettings` (`TimedOverlay` in `VideoSupport.kt`).
+- Overlay lanes `o:x|y|size|rotation|opacity` on video tracks (`OVERLAY_AUTO`, `Overlay.withAuto`).
+- Colours: `Overlay.custom` (ARGB, 0 = use `color`); rainbow button opens an HSV mixer (`ColorChoice` in `ui/ClipTools.kt`).
+- Fonts: Lexend (variable font) is the app font and default text font; `OVERLAY_FONTS` (15 families, OFL) match `FONT_RES` in `AndroidPlatform.kt`. Overlay text uses each font's default weight in preview and export. Inter now only ships regular.
+- MP3 export NOT built: Android has no MP3 encoder and the usable ones (LAME, Shine) are LGPL, which AGENTS.md excludes. Needs a licence decision from the user.
 
 ## Current state (2026-11-15)
 Version 0.2.0 in the tree and installed on the phone as a debug build; the published release is still 0.1.0.

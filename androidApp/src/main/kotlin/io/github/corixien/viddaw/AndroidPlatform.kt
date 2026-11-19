@@ -1,5 +1,6 @@
 package io.github.corixien.viddaw
 
+import androidx.compose.ui.graphics.asImageBitmap
 import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
@@ -37,6 +38,12 @@ import java.nio.ByteOrder
 import java.util.Locale
 
 /** Android implementation of the host services. Must be created before the activity starts. */
+/** Resources behind OVERLAY_FONTS, same order. */
+val FONT_RES = intArrayOf(
+    R.font.lexend, R.font.inter_regular, R.font.roboto, R.font.open_sans, R.font.montserrat, R.font.poppins, R.font.playfair_display,
+    R.font.oswald, R.font.bebas_neue, R.font.anton, R.font.pacifico, R.font.lobster, R.font.dancing_script, R.font.caveat, R.font.source_code_pro,
+)
+
 class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     override val dataDir: String = activity.filesDir.absolutePath
     override val systemLanguage: String get() = Locale.getDefault().language
@@ -118,6 +125,14 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
 
     override suspend fun pickAudio(): PickedMedia? = pick("audio/*", "video/*")
     override suspend fun pickVideo(): PickedMedia? = pick("video/*")
+    override suspend fun pickImage(): PickedMedia? = pick("image/*")
+
+    override suspend fun loadImage(uri: String, maxSide: Int): ImageBitmap? = withContext(Dispatchers.IO) {
+        runCatching { video.decodeImage(Uri.parse(uri), maxSide)?.asImageBitmap() }.getOrNull()
+    }
+
+    override fun overlayFont(index: Int): androidx.compose.ui.text.font.FontFamily =
+        androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(FONT_RES[index.coerceIn(0, FONT_RES.lastIndex)]))
 
     override suspend fun importAudio(uri: String, destWav: String, onProgress: (Float) -> Unit): Long =
         importLock.withLock { withContext(Dispatchers.IO) { runCatching { decode(Uri.parse(uri), destWav, onProgress) }.getOrDefault(0L) } }

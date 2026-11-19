@@ -24,6 +24,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import io.github.corixien.viddaw.model.mapClip
 import io.github.corixien.viddaw.model.transitionAt
 import io.github.corixien.viddaw.model.withAuto
+import io.github.corixien.viddaw.model.OVERLAY_IMAGE
 import kotlin.math.abs
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -243,7 +244,10 @@ private fun VideoBox(app: AppState, studio: StudioState, modifier: Modifier) {
                 app.platform.VideoPreview(segments, ::now, studio.playing, Modifier.fillMaxSize())
             }
             Canvas(Modifier.fillMaxSize()) {
-                for (o in active(now())) drawOverlay(o.overlay, measurer, style, o.clipId in studio.selection)
+                for (o in active(now())) {
+                    val shown = o.overlay.withAuto(o.autos, now())
+                    drawOverlay(shown, measurer, style, o.clipId in studio.selection, app.platform.overlayFont(shown.font), if (shown.kind == OVERLAY_IMAGE) studio.imageFor(shown.text) else null)
+                }
                 val hair = 1.dp.toPx()
                 if (studio.showGrid) {
                     val faint = Color.White.copy(alpha = 0.35f)
@@ -364,7 +368,8 @@ private fun BoxScope.AddTrackSheet(studio: StudioState) {
         ListRow(T.videoTrack.t, { add(TrackType.Video, T.videoTrack) }, subtitle = T.videoTrackHint.t, icon = Lucide.Film)
         Hairline(Modifier.padding(vertical = 6.dp))
         ListRow(T.importAudio.t, { studio.panel = Panel.None; studio.importAudio() }, icon = Lucide.Import)
-        ListRow(T.importVideo.t, { studio.panel = Panel.None; studio.importVideo() }, icon = Lucide.Video)
+        ListRow(T.importVideo.t, { studio.panel = Panel.None; studio.importVideo(newTracks = true) }, icon = Lucide.Video)
+        ListRow(T.importImage.t, { studio.panel = Panel.None; studio.importImage() }, icon = Lucide.Image)
         ListRow(T.textOrShape.t, { studio.panel = Panel.AddOverlay }, subtitle = T.textOrShapeHint.t, icon = Lucide.Shapes)
     }
 }

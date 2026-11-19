@@ -107,6 +107,7 @@ object T {
     val timeSignature = Str("Time signature", "Taktart")
     val pictureFormat = Str("Picture format", "Bildformat")
     val auto = Str("Auto", "Auto")
+    val importImage = Str("Import picture", "Bild importieren")
     val automation = Str("Automation", "Automation")
     val addAutomation = Str("Add automation", "Automation hinzufügen")
     val removeLane = Str("Remove lane", "Spur entfernen")
